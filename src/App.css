@@ -104,6 +104,117 @@
   position: relative;
 }
 
+/* ── War tactic panel ───────────────────────────────── */
+
+.war-tactic-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 48px;
+  transform: translateX(-50%);
+  z-index: 2600;
+  width: min(520px, 94vw);
+  padding: 14px 16px;
+  background: rgba(14, 11, 7, 0.96);
+  border: 1px solid #6b5a3e;
+  border-radius: 4px;
+  box-shadow: 0 -4px 28px rgba(0, 0, 0, 0.55);
+  font-family: serif;
+  color: #d4c9a8;
+}
+
+.war-tactic-panel-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.war-tactic-badge {
+  font-size: 9px;
+  letter-spacing: 0.35em;
+  color: #c8a86b;
+  text-transform: uppercase;
+}
+
+.war-tactic-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #d4c9a8;
+  line-height: 1.35;
+}
+
+.war-tactic-enemy-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-style: italic;
+  color: #8b7355;
+  line-height: 1.4;
+}
+
+.war-tactic-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: rgba(8, 6, 4, 0.9);
+  border: 1px solid #6b5a3e;
+  border-radius: 3px;
+  color: #d4c9a8;
+  font-family: serif;
+  font-size: 13px;
+  resize: vertical;
+  min-height: 72px;
+  outline: none;
+}
+
+.war-tactic-textarea:focus {
+  border-color: #8b7355;
+}
+
+.war-tactic-textarea:disabled {
+  opacity: 0.45;
+}
+
+.war-tactic-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.war-tactic-timer {
+  font-family: monospace;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  color: #c8a86b;
+}
+
+.war-tactic-btn {
+  background: #6b4423;
+  color: #d4c9a8;
+  border: 1px solid #8b5a30;
+  padding: 8px 18px;
+  font-family: serif;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.war-tactic-btn:hover:not(:disabled) {
+  background: #8b5a30;
+}
+
+.war-tactic-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .turn-closed-toast {
   position: absolute;
   left: 50%;

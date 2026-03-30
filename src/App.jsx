@@ -185,6 +185,36 @@ function isOwnTerritory(countryKey, myCountry) {
   return countryKey.startsWith(myCountry + ' (')
 }
 
+const WAR_TACTIC_SECONDS = 60
+
+function formatWarCountdown(sec) {
+  const s = Math.max(0, sec)
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
+}
+
+function collectOwnUnits(units, myCountry) {
+  const totals = { infantry: 0, artillery: 0, cavalry: 0 }
+  Object.entries(units).forEach(([region, u]) => {
+    if (!isOwnTerritory(region, myCountry)) return
+    totals.infantry += u.infantry || 0
+    totals.artillery += u.artillery || 0
+    totals.cavalry += u.cavalry || 0
+  })
+  return totals
+}
+
+function empireAtTerritory(ww1Name, playersRecord) {
+  const sorted = Object.values(playersRecord)
+    .filter((p) => p?.country)
+    .sort((a, b) => b.country.length - a.country.length)
+  for (const p of sorted) {
+    if (ww1Name === p.country || ww1Name.startsWith(p.country + ' (')) return p.country
+  }
+  return null
+}
+
 function formatTime(ms) {
   const totalSec = Math.max(0, Math.floor(ms / 1000))
   const h = Math.floor(totalSec / 3600)
@@ -310,33 +340,102 @@ function LobbyScreen({ onEnter, socket }) {
   )
 }
 
-function ContextMenu({ menu, resources, onSelect, onClose }) {
+function ContextMenu({ menu, resources, onSelectUnit, onDeclareWar }) {
   if (!menu) return null
+  const kind = menu.type || 'units'
   return (
     <div
       className="context-menu"
       style={{ left: menu.x, top: menu.y }}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="context-menu-header">{menu.country}</div>
-      {Object.entries(UNIT_TYPES).map(([type, { label, icon, cost }]) => {
-        const canAfford = Object.entries(cost).every(([res, amt]) => resources[res] >= amt)
-        const costStr = Object.entries(cost)
-          .map(([res, amt]) => `${RES_LABELS[res]} ${amt}`)
-          .join(', ')
-        return (
-          <button
-            key={type}
-            className={`context-menu-item${canAfford ? '' : ' context-menu-item--disabled'}`}
-            onClick={() => canAfford && onSelect(type)}
-            disabled={!canAfford}
-          >
-            <span className="cm-icon">{icon}</span>
-            <span className="cm-label">{label}</span>
-            <span className="cm-cost">{costStr}</span>
+      {kind === 'war' ? (
+        <>
+          <div className="context-menu-header">{menu.defender}</div>
+          <button type="button" className="context-menu-item" onClick={onDeclareWar}>
+            <span className="cm-label">Savaş İlan Et</span>
           </button>
-        )
-      })}
+        </>
+      ) : (
+        <>
+          <div className="context-menu-header">{menu.country}</div>
+          {Object.entries(UNIT_TYPES).map(([type, { label, icon, cost }]) => {
+            const canAfford = Object.entries(cost).every(([res, amt]) => resources[res] >= amt)
+            const costStr = Object.entries(cost)
+              .map(([res, amt]) => `${RES_LABELS[res]} ${amt}`)
+              .join(', ')
+            return (
+              <button
+                key={type}
+                className={`context-menu-item${canAfford ? '' : ' context-menu-item--disabled'}`}
+                onClick={() => canAfford && onSelectUnit(type)}
+                disabled={!canAfford}
+              >
+                <span className="cm-icon">{icon}</span>
+                <span className="cm-label">{label}</span>
+                <span className="cm-cost">{costStr}</span>
+              </button>
+            )
+          })}
+        </>
+      )}
+    </div>
+  )
+}
+
+function WarTacticPanel({
+  panel,
+  tacticText,
+  onTacticChange,
+  timeLeftSec,
+  onAttack,
+  onDefenseSubmit,
+}) {
+  if (!panel) return null
+  const isDefense = panel.role === 'defense'
+  const canAct = timeLeftSec > 0
+
+  return (
+    <div className="war-tactic-panel">
+      <div className="war-tactic-panel-head">
+        {isDefense && <span className="war-tactic-badge">SAVUNMA</span>}
+        <h3 className="war-tactic-title">
+          SAVAŞ: {panel.attacker} vs {panel.defender}
+        </h3>
+      </div>
+      {isDefense && panel.attackerTactic ? (
+        <p className="war-tactic-enemy-note">Rakip taktik: {panel.attackerTactic}</p>
+      ) : null}
+      <textarea
+        className="war-tactic-textarea"
+        placeholder="Taktik planını yaz... (isteğe bağlı)"
+        value={tacticText}
+        onChange={(e) => onTacticChange(e.target.value)}
+        rows={4}
+        disabled={!canAct}
+      />
+      <div className="war-tactic-actions">
+        <span className="war-tactic-timer">{formatWarCountdown(timeLeftSec)}</span>
+        {isDefense ? (
+          <button
+            type="button"
+            className="war-tactic-btn"
+            disabled={!canAct}
+            onClick={onDefenseSubmit}
+          >
+            Savunmayı Gönder
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="war-tactic-btn"
+            disabled={!canAct}
+            onClick={onAttack}
+          >
+            Saldır
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -384,6 +483,8 @@ function App() {
   const [resources, setResources] = useState(EMPTY_RESOURCES)
   const [units, setUnits] = useState({})
   const [contextMenu, setContextMenu] = useState(null)
+  const [warPanel, setWarPanel] = useState(null)
+  const [warTacticText, setWarTacticText] = useState('')
   const [turnClosedToast, setTurnClosedToast] = useState(null)
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
@@ -485,6 +586,19 @@ function App() {
       setPlayers(updatedPlayers)
     })
 
+    newSocket.on('warDeclared', (payload) => {
+      if (!payload?.warId) return
+      setWarTacticText('')
+      setWarPanel({
+        role: 'defense',
+        warId: payload.warId,
+        attacker: payload.attacker,
+        defender: payload.defender,
+        attackerTactic: payload.attackerTactic || '',
+        timeLeftSec: payload.timeLeft ?? WAR_TACTIC_SECONDS,
+      })
+    })
+
     setSocket(newSocket)
 
     return () => newSocket.disconnect()
@@ -497,6 +611,22 @@ function App() {
       layer.setStyle(getFeatureStyle(layer.feature))
     })
   }, [players])
+
+  const warPanelKey = warPanel
+    ? `${warPanel.role}-${warPanel.warId ?? 'atk'}-${warPanel.attacker}-${warPanel.defender}`
+    : ''
+
+  useEffect(() => {
+    if (!warPanelKey) return
+    const id = setInterval(() => {
+      setWarPanel((prev) => {
+        if (!prev) return null
+        if (prev.timeLeftSec <= 1) return { ...prev, timeLeftSec: 0 }
+        return { ...prev, timeLeftSec: prev.timeLeftSec - 1 }
+      })
+    }, 1000)
+    return () => clearInterval(id)
+  }, [warPanelKey])
 
   function resetSelected() {
     if (selectedLayerRef.current) {
@@ -548,18 +678,38 @@ function App() {
           return
         }
         const myCountry = playerRef.current?.country
-        if (!myCountry || !ww1Name.startsWith(myCountry)) return
+        const myName = playerRef.current?.name
+        if (!myCountry) return
+
+        const empire = empireAtTerritory(ww1Name, playersRef.current)
+        if (empire === myCountry) {
+          setContextMenu({
+            type: 'units',
+            x: e.originalEvent.clientX,
+            y: e.originalEvent.clientY,
+            country: ww1Name,
+          })
+          return
+        }
+
+        if (!empire) return
+        const enemyHere = Object.values(playersRef.current).some(
+          (p) => p.country === empire && p.name !== myName,
+        )
+        if (!enemyHere) return
+
         setContextMenu({
+          type: 'war',
           x: e.originalEvent.clientX,
           y: e.originalEvent.clientY,
-          country: ww1Name,
+          defender: empire,
         })
       },
     })
   }
 
   function placeUnit(unitType) {
-    if (!contextMenu) return
+    if (!contextMenu || contextMenu.type !== 'units') return
     const cost = UNIT_TYPES[unitType].cost
     const canAfford = Object.entries(cost).every(([res, amt]) => resources[res] >= amt)
     if (!canAfford) return
@@ -569,6 +719,41 @@ function App() {
       playerId: socket.id,
     })
     setContextMenu(null)
+  }
+
+  function openWarPanelFromMenu() {
+    if (!contextMenu || contextMenu.type !== 'war' || !player) return
+    const defender = contextMenu.defender
+    setContextMenu(null)
+    setWarTacticText('')
+    setWarPanel({
+      role: 'attack',
+      attacker: player.country,
+      defender,
+      timeLeftSec: WAR_TACTIC_SECONDS,
+    })
+  }
+
+  function handleDeclareWarSubmit() {
+    if (!warPanel || warPanel.role !== 'attack' || !socket || !player) return
+    socket.emit('declareWar', {
+      attacker: warPanel.attacker,
+      defender: warPanel.defender,
+      attackerTactic: warTacticText,
+      attackerUnits: collectOwnUnits(units, player.country),
+    })
+    setWarPanel(null)
+    setWarTacticText('')
+  }
+
+  function handleDefenseSubmit() {
+    if (!warPanel || warPanel.role !== 'defense' || !socket || !warPanel.warId) return
+    socket.emit('submitDefense', {
+      warId: warPanel.warId,
+      defenderTactic: warTacticText,
+    })
+    setWarPanel(null)
+    setWarTacticText('')
   }
 
   useEffect(() => {
@@ -654,8 +839,17 @@ function App() {
       <ContextMenu
         menu={contextMenu}
         resources={resources}
-        onSelect={placeUnit}
-        onClose={() => setContextMenu(null)}
+        onSelectUnit={placeUnit}
+        onDeclareWar={openWarPanelFromMenu}
+      />
+
+      <WarTacticPanel
+        panel={warPanel}
+        tacticText={warTacticText}
+        onTacticChange={setWarTacticText}
+        timeLeftSec={warPanel?.timeLeftSec ?? 0}
+        onAttack={handleDeclareWarSubmit}
+        onDefenseSubmit={handleDefenseSubmit}
       />
 
       {isHost && !turnActive && (

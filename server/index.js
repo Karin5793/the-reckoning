@@ -50,12 +50,15 @@ const UNIT_COST = {
   cavalry: { bugday: 8, para: 8 },
 };
 
+const WAR_TACTIC_SECONDS = 60; // test: 60s; prod: 30 * 60
+
 const gameState = {
   year: 1914,
   turn: 1,
   maxTurns: 4,
   players: {},
   units: {},
+  wars: {},
   countryResources: JSON.parse(JSON.stringify(INITIAL_COUNTRY_RESOURCES)),
   turnActive: false,
   turnDuration: 60000, // test: 1 dakika (prod: 7200000)
@@ -194,6 +197,65 @@ io.on('connection', (socket) => {
 
     io.emit('unitsUpdate', gameState.units);
     emitResourcesForCountry(player.country);
+  });
+
+  socket.on('declareWar', (data) => {
+    const { attacker, defender, attackerTactic, attackerUnits } = data || {};
+    const player = gameState.players[socket.id];
+    if (!player || !attacker || !defender) return;
+    if (player.country !== attacker) return;
+    if (attacker === defender) return;
+    if (!gameState.turnActive) return;
+
+    const defenderExists = Object.values(gameState.players).some(
+      (p) => p.country === defender && p.country !== attacker
+    );
+    if (!defenderExists) return;
+
+    const warId = `w_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    gameState.wars[warId] = {
+      attacker,
+      defender,
+      attackerTactic: attackerTactic || '',
+      attackerUnits: attackerUnits && typeof attackerUnits === 'object' ? attackerUnits : {},
+      defenderTactic: null,
+      declaredAt: Date.now(),
+    };
+
+    console.log(`Savaş ilanı: ${attacker} -> ${defender} (${warId})`);
+
+    Object.entries(gameState.players).forEach(([id, p]) => {
+      if (p.country === defender) {
+        io.to(id).emit('warDeclared', {
+          warId,
+          attacker,
+          defender,
+          attackerTactic: attackerTactic || '',
+          timeLeft: WAR_TACTIC_SECONDS,
+        });
+      }
+    });
+  });
+
+  socket.on('submitDefense', (data) => {
+    const { warId, defenderTactic } = data || {};
+    const player = gameState.players[socket.id];
+    if (!player || !warId) return;
+
+    const war = gameState.wars[warId];
+    if (!war || war.defender !== player.country) return;
+
+    war.defenderTactic = defenderTactic || '';
+
+    Object.entries(gameState.players).forEach(([id, p]) => {
+      if (p.country === war.attacker) {
+        io.to(id).emit('warDefenseSubmitted', {
+          warId,
+          defender: war.defender,
+          defenderTactic: war.defenderTactic,
+        });
+      }
+    });
   });
 
   socket.on('endTurn', () => {
