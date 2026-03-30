@@ -109,24 +109,24 @@ function resolveCountryName(modernName) {
   return WW1_NAMES[modernName] ?? modernName
 }
 
-const DEFAULT_STYLE = {
-  fillColor: '#8b7355',
-  weight: 1.5,
-  color: '#2c1810',
-  fillOpacity: 0.5,
+// WW1 adından GeoJSON feature NAME'lerine ters eşleme (1-to-many)
+const REVERSE_NAMES = Object.entries(WW1_NAMES).reduce((acc, [featureName, ww1Name]) => {
+  if (!acc[ww1Name]) acc[ww1Name] = []
+  acc[ww1Name].push(featureName)
+  return acc
+}, {})
+
+function resolveFeatureNames(ww1Name) {
+  return REVERSE_NAMES[ww1Name] ?? [ww1Name]
 }
 
-const HOVER_STYLE = {
-  ...DEFAULT_STYLE,
-  fillOpacity: 0.75,
-}
+const BASE_BORDER = { weight: 1.5, color: '#2c1810' }
 
-const SELECTED_STYLE = {
-  fillColor: '#6b4423',
-  weight: 1.5,
-  color: '#2c1810',
-  fillOpacity: 0.85,
-}
+const DEFAULT_STYLE = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.5 }
+const HOVER_STYLE   = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.75 }
+const SELECTED_STYLE = { ...BASE_BORDER, fillColor: '#6b4423', fillOpacity: 0.85 }
+const MY_STYLE      = { ...BASE_BORDER, fillColor: '#2d5a1b', fillOpacity: 0.75 }
+const ENEMY_STYLE   = { ...BASE_BORDER, fillColor: '#8b1a1a', fillOpacity: 0.75 }
 
 const RESOURCES = [
   { icon: '🌾', label: 'Buğday', value: 120 },
@@ -256,6 +256,24 @@ function App() {
   const [player, setPlayer] = useState(null)
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
+  // Ref kopyaları: event handler ve style fn içinde her zaman güncel değeri okur
+  const playersRef = useRef({})
+  const playerRef = useRef(null)
+
+  function getFeatureStyle(feature) {
+    const rawName = feature.properties.NAME || feature.properties.name || ''
+    const ww1Name = resolveCountryName(rawName)
+    const myCountry = playerRef.current?.country
+    if (myCountry && ww1Name === myCountry) return MY_STYLE
+    const isEnemy = Object.values(playersRef.current).some((p) => p.country === ww1Name)
+    if (isEnemy) return ENEMY_STYLE
+    return DEFAULT_STYLE
+  }
+
+  function handleEnterGame(p) {
+    playerRef.current = p
+    setPlayer(p)
+  }
 
   useEffect(() => {
     fetchWW1Borders()
@@ -275,6 +293,7 @@ function App() {
     })
 
     newSocket.on('playersUpdate', (updatedPlayers) => {
+      playersRef.current = updatedPlayers
       setPlayers(updatedPlayers)
     })
 
@@ -282,6 +301,14 @@ function App() {
 
     return () => newSocket.disconnect()
   }, [])
+
+  useEffect(() => {
+    if (!geoJsonRef.current) return
+    geoJsonRef.current.eachLayer((layer) => {
+      if (!layer.feature || layer === selectedLayerRef.current) return
+      layer.setStyle(getFeatureStyle(layer.feature))
+    })
+  }, [players])
 
   function resetSelected() {
     if (selectedLayerRef.current) {
@@ -301,7 +328,7 @@ function App() {
       mouseout(e) {
         const l = e.target
         if (l !== selectedLayerRef.current) {
-          l.setStyle(DEFAULT_STYLE)
+          l.setStyle(getFeatureStyle(feature))
         }
       },
       click(e) {
@@ -320,7 +347,7 @@ function App() {
   }
 
   if (!player) {
-    return <LobbyScreen onEnter={setPlayer} socket={socket} />
+    return <LobbyScreen onEnter={handleEnterGame} socket={socket} />
   }
 
   return (
@@ -341,7 +368,7 @@ function App() {
           <GeoJSON
             ref={geoJsonRef}
             data={geoData}
-            style={DEFAULT_STYLE}
+            style={getFeatureStyle}
             onEachFeature={onEachFeature}
           />
         )}
