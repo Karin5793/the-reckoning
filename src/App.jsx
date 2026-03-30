@@ -118,7 +118,7 @@ const SELECTED_STYLE = { ...BASE_BORDER, fillColor: '#6b4423', fillOpacity: 0.85
 const MY_STYLE      = { ...BASE_BORDER, fillColor: '#2d5a1b', fillOpacity: 0.75 }
 const ENEMY_STYLE   = { ...BASE_BORDER, fillColor: '#8b1a1a', fillOpacity: 0.75 }
 
-const INITIAL_RESOURCES = { bugday: 120, demir: 85, petrol: 40, para: 200, nig: 30 }
+const EMPTY_RESOURCES = { bugday: 0, demir: 0, petrol: 0, para: 0, nig: 0 }
 
 const BOTTOM_BAR_ITEMS = [
   { icon: '🌾', label: 'Buğday', key: 'bugday' },
@@ -381,7 +381,7 @@ function App() {
   const [turnActive, setTurnActive] = useState(false)
   const [timeLeft, setTimeLeft] = useState(0)
   const [isHost, setIsHost] = useState(false)
-  const [resources, setResources] = useState(INITIAL_RESOURCES)
+  const [resources, setResources] = useState(EMPTY_RESOURCES)
   const [units, setUnits] = useState({})
   const [contextMenu, setContextMenu] = useState(null)
   const [turnClosedToast, setTurnClosedToast] = useState(null)
@@ -444,6 +444,18 @@ function App() {
 
     newSocket.on('unitsUpdate', (updatedUnits) => {
       setUnits(updatedUnits)
+    })
+
+    newSocket.on('resourcesUpdate', (payload) => {
+      if (payload && typeof payload === 'object') {
+        setResources({
+          bugday: payload.bugday ?? 0,
+          demir: payload.demir ?? 0,
+          petrol: payload.petrol ?? 0,
+          para: payload.para ?? 0,
+          nig: payload.nig ?? 0,
+        })
+      }
     })
 
     newSocket.on('turnStarted', ({ year, turn, turnEndTime }) => {
@@ -551,11 +563,6 @@ function App() {
     const cost = UNIT_TYPES[unitType].cost
     const canAfford = Object.entries(cost).every(([res, amt]) => resources[res] >= amt)
     if (!canAfford) return
-    setResources((prev) => {
-      const next = { ...prev }
-      Object.entries(cost).forEach(([res, amt]) => { next[res] -= amt })
-      return next
-    })
     socket?.emit('placeUnit', {
       country: contextMenu.country,
       unitType,
