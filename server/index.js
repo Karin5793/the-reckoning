@@ -14,45 +14,101 @@ const io = new Server(server, {
   }
 });
 
-// Oyun durumu
 const gameState = {
   year: 1914,
   turn: 1,
   maxTurns: 4,
-  players: {}
+  players: {},
+  turnActive: false,
+  turnDuration: 60000, // test: 1 dakika (prod: 7200000)
+  turnEndTime: null,
+  turnStartTime: null,
 };
 
-// Bağlantı
+let hostId = null;
+let turnTimerInterval = null;
+
+function endTurn() {
+  clearInterval(turnTimerInterval);
+  turnTimerInterval = null;
+  gameState.turnActive = false;
+  gameState.turnEndTime = null;
+  gameState.turnStartTime = null;
+  gameState.year += 1;
+  gameState.turn += 1;
+  console.log(`Tur bitti. Yeni yıl: ${gameState.year}, Tur: ${gameState.turn}`);
+  io.emit('turnEnded', { year: gameState.year, turn: gameState.turn });
+}
+
 io.on('connection', (socket) => {
-  console.log('Oyuncu bağlandı:', socket.id);
+  if (!hostId) {
+    hostId = socket.id;
+    console.log('Host belirlendi:', hostId);
+  }
 
-  // Oyun durumunu yeni oyuncuya gönder
-  socket.emit('gameState', gameState);
+  console.log('Oyuncu bağlandı:', socket.id, hostId === socket.id ? '(host)' : '');
 
-  // Oyuncu ülke seçti
+  socket.emit('gameState', {
+    ...gameState,
+    isHost: socket.id === hostId,
+  });
+
   socket.on('selectCountry', ({ name, country }) => {
-    gameState.players[socket.id] = {
-      name,
-      country,
-      connectedAt: new Date()
-    };
+    gameState.players[socket.id] = { name, country, connectedAt: new Date() };
     console.log(`${name} -> ${country} seçti`);
     io.emit('playersUpdate', gameState.players);
   });
 
-  // Bağlantı kesildi
+  socket.on('startTurn', () => {
+    if (socket.id !== hostId) return;
+    if (gameState.turnActive) return;
+
+    gameState.turnActive = true;
+    gameState.turnStartTime = Date.now();
+    gameState.turnEndTime = Date.now() + gameState.turnDuration;
+
+    console.log(`Tur başladı. Bitiş: ${new Date(gameState.turnEndTime).toLocaleTimeString()}`);
+    io.emit('turnStarted', {
+      year: gameState.year,
+      turn: gameState.turn,
+      turnEndTime: gameState.turnEndTime,
+    });
+
+    turnTimerInterval = setInterval(() => {
+      const remaining = Math.max(0, gameState.turnEndTime - Date.now());
+      io.emit('turnTimer', { remaining });
+      if (remaining <= 0) endTurn();
+    }, 1000);
+  });
+
+  socket.on('endTurn', () => {
+    if (socket.id !== hostId) return;
+    if (!gameState.turnActive) return;
+    endTurn();
+  });
+
   socket.on('disconnect', () => {
     console.log('Oyuncu ayrıldı:', socket.id);
     delete gameState.players[socket.id];
+
+    if (hostId === socket.id) {
+      const remaining = Object.keys(gameState.players);
+      hostId = remaining.length > 0 ? remaining[0] : null;
+      if (hostId) {
+        console.log('Yeni host:', hostId);
+        io.to(hostId).emit('promotedToHost');
+      }
+    }
+
     io.emit('playersUpdate', gameState.players);
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', gameState });
+  res.json({ status: 'ok', gameState, hostId });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 server.listen(PORT, () => {
   console.log(`Server çalışıyor: http://localhost:${PORT}`);
 });

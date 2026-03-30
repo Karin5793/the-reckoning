@@ -136,12 +136,25 @@ const RESOURCES = [
   { icon: '👤', label: 'NİG', value: 30 },
 ]
 
-function TopBar() {
+function formatTime(ms) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function TopBar({ year, turn, maxTurns, turnActive, timeLeft }) {
   return (
     <div className="top-bar">
       <span className="bar-logo">THE RECKONING</span>
-      <span className="bar-year">1914</span>
-      <span className="bar-turn">TUR: 1 / 4</span>
+      <div className="bar-center">
+        <span className="bar-year">{year}</span>
+        {turnActive && <span className="bar-timer">{formatTime(timeLeft)}</span>}
+      </div>
+      <span className="bar-turn">
+        {turnActive ? `TUR: ${turn} / ${maxTurns}` : 'TUR KAPALI — Diplomatik Ara'}
+      </span>
     </div>
   )
 }
@@ -254,9 +267,14 @@ function App() {
   const [socket, setSocket] = useState(null)
   const [players, setPlayers] = useState({})
   const [player, setPlayer] = useState(null)
+  const [gameYear, setGameYear] = useState(1914)
+  const [gameTurn, setGameTurn] = useState(1)
+  const [gameMaxTurns, setGameMaxTurns] = useState(4)
+  const [turnActive, setTurnActive] = useState(false)
+  const [timeLeft, setTimeLeft] = useState(0)
+  const [isHost, setIsHost] = useState(false)
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
-  // Ref kopyaları: event handler ve style fn içinde her zaman güncel değeri okur
   const playersRef = useRef({})
   const playerRef = useRef(null)
 
@@ -282,14 +300,43 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const newSocket = io('http://localhost:3001')
+    const newSocket = io('http://localhost:3002')
 
     newSocket.on('connect', () => {
       console.log('Sunucuya bağlandı:', newSocket.id)
     })
 
     newSocket.on('gameState', (state) => {
-      console.log('Oyun durumu:', state)
+      setGameYear(state.year)
+      setGameTurn(state.turn)
+      setGameMaxTurns(state.maxTurns)
+      setTurnActive(state.turnActive)
+      setIsHost(state.isHost)
+      if (state.turnEndTime) {
+        setTimeLeft(Math.max(0, state.turnEndTime - Date.now()))
+      }
+    })
+
+    newSocket.on('turnStarted', ({ year, turn, turnEndTime }) => {
+      setGameYear(year)
+      setGameTurn(turn)
+      setTurnActive(true)
+      setTimeLeft(Math.max(0, turnEndTime - Date.now()))
+    })
+
+    newSocket.on('turnEnded', ({ year, turn }) => {
+      setGameYear(year)
+      setGameTurn(turn)
+      setTurnActive(false)
+      setTimeLeft(0)
+    })
+
+    newSocket.on('turnTimer', ({ remaining }) => {
+      setTimeLeft(remaining)
+    })
+
+    newSocket.on('promotedToHost', () => {
+      setIsHost(true)
     })
 
     newSocket.on('playersUpdate', (updatedPlayers) => {
@@ -312,7 +359,8 @@ function App() {
 
   function resetSelected() {
     if (selectedLayerRef.current) {
-      selectedLayerRef.current.setStyle(DEFAULT_STYLE)
+      const f = selectedLayerRef.current.feature
+      selectedLayerRef.current.setStyle(f ? getFeatureStyle(f) : DEFAULT_STYLE)
       selectedLayerRef.current = null
     }
   }
@@ -352,7 +400,13 @@ function App() {
 
   return (
     <>
-      <TopBar />
+      <TopBar
+        year={gameYear}
+        turn={gameTurn}
+        maxTurns={gameMaxTurns}
+        turnActive={turnActive}
+        timeLeft={timeLeft}
+      />
       <div className="map-wrapper">
       <MapContainer
         center={[20, 10]}
@@ -381,6 +435,15 @@ function App() {
           setSelectedCountry(null)
         }}
       />
+
+      {isHost && !turnActive && (
+        <button
+          className="start-turn-btn"
+          onClick={() => socket?.emit('startTurn')}
+        >
+          Turu Başlat
+        </button>
+      )}
       </div>
       <BottomBar />
     </>
