@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, GeoJSON } from 'react-leaflet'
 import ww1Countries from './data/ww1Countries'
+import { fetchWW1Borders } from './data/ww1Borders'
 import './App.css'
-
-const GEOJSON_URL =
-  'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson'
 
 const WW1_NAMES = {
   'Turkey': 'Osmanlı İmparatorluğu',
@@ -30,14 +28,9 @@ const WW1_NAMES = {
   'Estonia': 'Baltık (Rus Kontrolü)',
   'Latvia': 'Baltık (Rus Kontrolü)',
   'Lithuania': 'Baltık (Rus Kontrolü)',
-  'Iraq': 'Mezopotamya (Osmanlı)',
-  'Syria': 'Suriye (Osmanlı)',
-  'Lebanon': 'Lübnan (Osmanlı)',
   'Jordan': 'Hicaz (Osmanlı)',
   'Israel': 'Filistin (Osmanlı)',
   'Saudi Arabia': 'Arabistan (Osmanlı)',
-  'Yemen': 'Yemen (Osmanlı)',
-  'Libya': 'Libya (Osmanlı)',
   'Morocco': 'Fas (Fransız Protektora)',
   'Algeria': 'Cezayir (Fransız)',
   'Tunisia': 'Tunus (Fransız)',
@@ -62,6 +55,53 @@ const WW1_NAMES = {
   'Sweden': 'İsveç Krallığı',
   'Norway': 'Norveç Krallığı',
   'Switzerland': 'İsviçre Konfederasyonu',
+  'Georgia': 'Çarlık Rusyası (Kafkasya)',
+  'Armenia': 'Çarlık Rusyası (Kafkasya)',
+  'Azerbaijan': 'Çarlık Rusyası (Kafkasya)',
+  'Kazakhstan': 'Çarlık Rusyası (Orta Asya)',
+  'Uzbekistan': 'Çarlık Rusyası (Orta Asya)',
+  'Turkmenistan': 'Çarlık Rusyası (Orta Asya)',
+  'Kyrgyzstan': 'Çarlık Rusyası (Orta Asya)',
+  'Tajikistan': 'Çarlık Rusyası (Orta Asya)',
+  'Mongolia': 'Çarlık Rusyası (Nüfuz Alanı)',
+  'Moldova': 'Çarlık Rusyası (Bessarabya)',
+  'Slovenia': 'Avusturya-Macaristan',
+  'Croatia': 'Avusturya-Macaristan',
+  'Bosnia and Herzegovina': 'Avusturya-Macaristan',
+  'Slovakia': 'Avusturya-Macaristan (Slovakya)',
+  'Kosovo': 'Osmanlı İmparatorluğu',
+  'North Macedonia': 'Osmanlı İmparatorluğu (Makedonya)',
+  'Iraq': 'Osmanlı İmparatorluğu (Mezopotamya)',
+  'Syria': 'Osmanlı İmparatorluğu (Suriye)',
+  'Lebanon': 'Osmanlı İmparatorluğu (Lübnan)',
+  'Palestine': 'Osmanlı İmparatorluğu (Filistin)',
+  'Kuwait': 'Osmanlı İmparatorluğu (Kuveyt)',
+  'Yemen': 'Osmanlı İmparatorluğu (Yemen)',
+  'Eritrea': 'İtalya Krallığı (Sömürge)',
+  'Libya': 'İtalya Krallığı (Sömürge)',
+  'Somalia': 'İtalya Krallığı (Sömürge)',
+  'Djibouti': 'Fransa Cumhuriyeti (Sömürge)',
+  'Namibia': 'Alman İmparatorluğu (Sömürge)',
+  'Tanzania': 'Alman İmparatorluğu (Sömürge)',
+  'Cameroon': 'Alman İmparatorluğu (Sömürge)',
+  'Togo': 'Alman İmparatorluğu (Sömürge)',
+  'Ottoman Empire': 'Osmanlı İmparatorluğu',
+  'United Kingdom of Great Britain and Ireland': 'Büyük Britanya İmparatorluğu',
+  'Russian Empire': 'Çarlık Rusyası',
+  'German Empire': 'Alman İmparatorluğu',
+  'Austria-Hungary': 'Avusturya-Macaristan',
+  'French Republic': 'Fransa Cumhuriyeti',
+  'Kingdom of Italy': 'İtalya Krallığı',
+  'Kingdom of Serbia': 'Sırbistan Krallığı',
+  'Kingdom of Romania': 'Romanya Krallığı',
+  'Kingdom of Bulgaria': 'Bulgaristan Çarlığı',
+  'Kingdom of Greece': 'Yunanistan Krallığı',
+  'Kingdom of Belgium': 'Belçika Krallığı',
+  'Empire of Japan': 'Japon İmparatorluğu',
+  'United States': 'Amerika Birleşik Devletleri',
+  'British India': 'Britanya Hindistanı',
+  'Persia': 'Persia (İran)',
+  'Ethiopia': 'Habeşistan',
 }
 
 function resolveCountryName(modernName) {
@@ -156,10 +196,9 @@ function App() {
   const geoJsonRef = useRef(null)
 
   useEffect(() => {
-    fetch(GEOJSON_URL)
-      .then((res) => res.json())
+    fetchWW1Borders()
       .then((data) => setGeoData(data))
-      .catch((err) => console.error('GeoJSON yüklenemedi:', err))
+      .catch((err) => console.error('WW1 sınırları yüklenemedi:', err))
   }, [])
 
   function resetSelected() {
@@ -188,7 +227,7 @@ function App() {
         const l = e.target
         l.setStyle(SELECTED_STYLE)
         selectedLayerRef.current = l
-        const modernName = feature.properties.ADMIN || feature.properties.name || 'Bilinmiyor'
+        const modernName = feature.properties.NAME || feature.properties.name || 'Bilinmiyor'
         setSelectedCountry({
           name: resolveCountryName(modernName),
         })
