@@ -440,6 +440,32 @@ function WarTacticPanel({
   )
 }
 
+function WarResultModal({ data, onClose }) {
+  if (!data) return null
+  const { attacker, defender, result } = data
+  const body =
+    typeof result === 'string'
+      ? result
+      : result != null
+        ? JSON.stringify(result, null, 2)
+        : ''
+
+  return (
+    <div className="war-result-overlay" role="dialog" aria-modal="true">
+      <div className="war-result-modal">
+        <h2 className="war-result-title">⚔ SAVAŞ SONUCU</h2>
+        <p className="war-result-matchup">
+          {attacker} <span className="war-result-vs">vs</span> {defender}
+        </p>
+        <div className="war-result-body">{body}</div>
+        <button type="button" className="war-result-close" onClick={onClose}>
+          Kapat
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function PlayerListPanel({ players, currentPlayer }) {
   const entries = Object.values(players)
   return (
@@ -485,6 +511,7 @@ function App() {
   const [contextMenu, setContextMenu] = useState(null)
   const [warPanel, setWarPanel] = useState(null)
   const [warTacticText, setWarTacticText] = useState('')
+  const [warResultModal, setWarResultModal] = useState(null)
   const [turnClosedToast, setTurnClosedToast] = useState(null)
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
@@ -596,6 +623,17 @@ function App() {
         defender: payload.defender,
         attackerTactic: payload.attackerTactic || '',
         timeLeftSec: payload.timeLeft ?? WAR_TACTIC_SECONDS,
+      })
+    })
+
+    newSocket.on('warResult', (payload) => {
+      if (!payload?.attacker || !payload?.defender) return
+      setWarPanel(null)
+      setWarTacticText('')
+      setWarResultModal({
+        attacker: payload.attacker,
+        defender: payload.defender,
+        result: typeof payload.result === 'string' ? payload.result : String(payload.result ?? ''),
       })
     })
 
@@ -850,6 +888,11 @@ function App() {
         timeLeftSec={warPanel?.timeLeftSec ?? 0}
         onAttack={handleDeclareWarSubmit}
         onDefenseSubmit={handleDefenseSubmit}
+      />
+
+      <WarResultModal
+        data={warResultModal}
+        onClose={() => setWarResultModal(null)}
       />
 
       {isHost && !turnActive && (

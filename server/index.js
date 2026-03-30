@@ -1,3 +1,7 @@
+require('dotenv').config();
+const Anthropic = require('@anthropic-ai/sdk');
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -118,6 +122,148 @@ function endTurn() {
   io.emit('turnEnded', { year: gameState.year, turn: gameState.turn });
 }
 
+function collectUnitsForCountry(units, country) {
+  const totals = { infantry: 0, artillery: 0, cavalry: 0 };
+  Object.entries(units || {}).forEach(([region, u]) => {
+    if (!u || typeof u !== 'object') return;
+    if (region === country || region.startsWith(`${country} (`)) {
+      totals.infantry += u.infantry || 0;
+      totals.artillery += u.artillery || 0;
+      totals.cavalry += u.cavalry || 0;
+    }
+  });
+  return totals;
+}
+
+async function resolveWar(warData) {
+  const {
+    attacker,
+    defender,
+    attackerTactic,
+    defenderTactic,
+    attackerUnits,
+    defenderUnits,
+    year,
+  } = warData;
+
+  const prompt = `Sen deneyimli bir Birinci Dünya Savaşı tarihçisi ve savaş simülatörüsün. Gerçekçi, detaylı ve tarihi bağlamla uyumlu bir savaş değerlendirmesi yap.
+
+SAVAŞ: ${attacker} vs ${defender}
+YIL: ${year}
+
+SALDIRAN (${attacker}):
+- Birlikler: ${JSON.stringify(attackerUnits ?? {})}
+- Taktik: ${attackerTactic || 'Taktik belirtilmedi - standart saldırı'}
+
+SAVUNAN (${defender}):
+- Birlikler: ${JSON.stringify(defenderUnits ?? {})}
+- Taktik: ${defenderTactic || 'Taktik belirtilmedi - standart savunma'}
+
+Şu formatta yanıt ver:
+
+SONUÇ: [SALDIRAN KAZANDI / SAVUNAN KAZANDI / BERABERLİK]
+
+SÜRE: [kaç gün sürdü]
+
+AÇIKLAMA: [3-4 cümle, savaşın nasıl geliştiğini WW1 gerçekçiliğiyle anlat. Arazi, hava, moral, lojistik gibi faktörleri dahil et.]
+
+${attacker} KAYIPLARI:
+- Piyade: -[sayı] er
+- Topçu: -[sayı] top
+- Süvari: -[sayı] atlı
+
+${defender} KAYIPLARI:
+- Piyade: -[sayı] er
+- Topçu: -[sayı] top
+- Süvari: -[sayı] atlı
+
+Kayıp sayılarını birim miktarına göre gerçekçi hesapla. Hiç piyade yoksa o satırı yazma.`;
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || apiKey === 'buraya_api_key_gelecek') {
+    return [
+      'SONUÇ: BERABERLİK',
+      '',
+      'SÜRE: —',
+      '',
+      'AÇIKLAMA: Anthropic API anahtarı ayarlanmadı; bu yer tutucu metindir.',
+      '',
+      `${attacker} KAYIPLARI:`,
+      '- Piyade: -0 er',
+      '',
+      `${defender} KAYIPLARI:`,
+      '- Piyade: -0 er',
+    ].join('\n');
+  }
+
+  const message = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 800,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const block = message.content.find((b) => b.type === 'text');
+  return block && block.text ? block.text : '';
+}
+
+async function finalizeWarResolution(warId) {
+  const war = gameState.wars[warId];
+  if (!war || war.resolved || war.resolving) return;
+  war.resolving = true;
+  if (war.resolveTimer) {
+    clearTimeout(war.resolveTimer);
+    war.resolveTimer = null;
+  }
+
+  const defenderUnits = gameState.units[war.defender];
+
+  const attackerUnits =
+    war.attackerUnits && typeof war.attackerUnits === 'object'
+      ? war.attackerUnits
+      : collectUnitsForCountry(gameState.units, war.attacker);
+
+  let rawText = '';
+  try {
+    rawText = await resolveWar({
+      attacker: war.attacker,
+      defender: war.defender,
+      attackerTactic: war.attackerTactic,
+      defenderTactic: war.defenderTactic,
+      attackerUnits,
+      defenderUnits,
+      year: gameState.year,
+    });
+  } catch (err) {
+    console.error('resolveWar hatası:', err);
+    rawText = [
+      'SONUÇ: BERABERLİK',
+      '',
+      'SÜRE: —',
+      '',
+      `AÇIKLAMA: Savaş çözümü alınamadı: ${err.message || String(err)}`,
+    ].join('\n');
+  }
+
+  war.resolved = true;
+  war.resolving = false;
+  war.resultText = rawText;
+
+  io.emit('warResult', {
+    attacker: war.attacker,
+    defender: war.defender,
+    result: rawText,
+  });
+}
+
+function scheduleWarAutoResolve(warId) {
+  const war = gameState.wars[warId];
+  if (!war) return;
+  if (war.resolveTimer) clearTimeout(war.resolveTimer);
+  war.resolveTimer = setTimeout(() => {
+    finalizeWarResolution(warId).catch((e) => console.error(e));
+  }, WAR_TACTIC_SECONDS * 1000);
+}
+
 io.on('connection', (socket) => {
   if (!hostId) {
     hostId = socket.id;
@@ -220,7 +366,12 @@ io.on('connection', (socket) => {
       attackerUnits: attackerUnits && typeof attackerUnits === 'object' ? attackerUnits : {},
       defenderTactic: null,
       declaredAt: Date.now(),
+      resolved: false,
+      resolving: false,
+      resolveTimer: null,
     };
+
+    scheduleWarAutoResolve(warId);
 
     console.log(`Savaş ilanı: ${attacker} -> ${defender} (${warId})`);
 
@@ -237,25 +388,18 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('submitDefense', (data) => {
+  socket.on('submitDefense', async (data) => {
     const { warId, defenderTactic } = data || {};
     const player = gameState.players[socket.id];
     if (!player || !warId) return;
 
     const war = gameState.wars[warId];
     if (!war || war.defender !== player.country) return;
+    if (war.resolved) return;
 
     war.defenderTactic = defenderTactic || '';
 
-    Object.entries(gameState.players).forEach(([id, p]) => {
-      if (p.country === war.attacker) {
-        io.to(id).emit('warDefenseSubmitted', {
-          warId,
-          defender: war.defender,
-          defenderTactic: war.defenderTactic,
-        });
-      }
-    });
+    await finalizeWarResolution(warId);
   });
 
   socket.on('endTurn', () => {
