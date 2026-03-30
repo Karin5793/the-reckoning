@@ -261,6 +261,34 @@ function LobbyScreen({ onEnter, socket }) {
   )
 }
 
+function PlayerListPanel({ players, currentPlayer }) {
+  const entries = Object.values(players)
+  return (
+    <div className="player-list-panel">
+      <span className="player-list-title">LOBİ</span>
+      <div className="player-list-divider" />
+      <ul className="player-list">
+        {entries.length === 0 ? (
+          <li className="player-list-empty">Bağlı oyuncu yok</li>
+        ) : (
+          entries.map((p, i) => {
+            const isSelf = p.name === currentPlayer?.name
+            return (
+              <li key={i} className={`player-list-row${isSelf ? ' player-list-row--self' : ''}`}>
+                <div className="player-list-info">
+                  <span className="player-list-name">{p.name}</span>
+                  <span className="player-list-country">{p.country}</span>
+                </div>
+                <span className="player-list-dot">●</span>
+              </li>
+            )
+          })
+        )}
+      </ul>
+    </div>
+  )
+}
+
 function App() {
   const [geoData, setGeoData] = useState(null)
   const [selectedCountry, setSelectedCountry] = useState(null)
@@ -435,6 +463,8 @@ function App() {
           setSelectedCountry(null)
         }}
       />
+
+      <PlayerListPanel players={players} currentPlayer={player} />
 
       {isHost && !turnActive && (
         <button
