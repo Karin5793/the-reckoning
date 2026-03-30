@@ -1,0 +1,236 @@
+import { useState, useEffect, useRef } from 'react'
+import { MapContainer, TileLayer, GeoJSON } from 'react-leaflet'
+import ww1Countries from './data/ww1Countries'
+import './App.css'
+
+const GEOJSON_URL =
+  'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson'
+
+const WW1_NAMES = {
+  'Turkey': 'Osmanlı İmparatorluğu',
+  'Russia': 'Çarlık Rusyası',
+  'Germany': 'Alman İmparatorluğu',
+  'Austria': 'Avusturya-Macaristan',
+  'Hungary': 'Avusturya-Macaristan',
+  'Czechia': 'Avusturya-Macaristan (Bohemya)',
+  'France': 'Fransa Cumhuriyeti',
+  'United Kingdom': 'Büyük Britanya İmparatorluğu',
+  'Italy': 'İtalya Krallığı',
+  'Serbia': 'Sırbistan Krallığı',
+  'Bulgaria': 'Bulgaristan Çarlığı',
+  'Romania': 'Romanya Krallığı',
+  'Greece': 'Yunanistan Krallığı',
+  'Belgium': 'Belçika Krallığı',
+  'Montenegro': 'Karadağ Krallığı',
+  'Albania': 'Arnavutluk',
+  'Poland': 'Polonya (Rus Kontrolü)',
+  'Ukraine': 'Ukrayna (Rus Kontrolü)',
+  'Belarus': 'Belarus (Rus Kontrolü)',
+  'Finland': 'Finlandiya (Rus Kontrolü)',
+  'Estonia': 'Baltık (Rus Kontrolü)',
+  'Latvia': 'Baltık (Rus Kontrolü)',
+  'Lithuania': 'Baltık (Rus Kontrolü)',
+  'Iraq': 'Mezopotamya (Osmanlı)',
+  'Syria': 'Suriye (Osmanlı)',
+  'Lebanon': 'Lübnan (Osmanlı)',
+  'Jordan': 'Hicaz (Osmanlı)',
+  'Israel': 'Filistin (Osmanlı)',
+  'Saudi Arabia': 'Arabistan (Osmanlı)',
+  'Yemen': 'Yemen (Osmanlı)',
+  'Libya': 'Libya (Osmanlı)',
+  'Morocco': 'Fas (Fransız Protektora)',
+  'Algeria': 'Cezayir (Fransız)',
+  'Tunisia': 'Tunus (Fransız)',
+  'Egypt': 'Mısır (İngiliz)',
+  'Sudan': 'Sudan (İngiliz-Mısır)',
+  'Iran': 'Persia (İran)',
+  'Afghanistan': 'Afganistan',
+  'India': 'Britanya Hindistanı',
+  'Pakistan': 'Britanya Hindistanı (Kuzeybatı)',
+  'Bangladesh': 'Britanya Hindistanı (Bengal)',
+  'United States of America': 'Amerika Birleşik Devletleri',
+  'Canada': 'Kanada (Britanya Dominion)',
+  'Australia': 'Avustralya (Britanya Dominion)',
+  'New Zealand': 'Yeni Zelanda (Britanya Dominion)',
+  'South Africa': 'Güney Afrika (Britanya Dominion)',
+  'Japan': 'Japon İmparatorluğu',
+  'China': 'Çin Cumhuriyeti',
+  'Portugal': 'Portekiz Krallığı',
+  'Spain': 'İspanya Krallığı',
+  'Netherlands': 'Hollanda Krallığı',
+  'Denmark': 'Danimarka Krallığı',
+  'Sweden': 'İsveç Krallığı',
+  'Norway': 'Norveç Krallığı',
+  'Switzerland': 'İsviçre Konfederasyonu',
+}
+
+function resolveCountryName(modernName) {
+  return WW1_NAMES[modernName] ?? modernName
+}
+
+const DEFAULT_STYLE = {
+  fillColor: '#8b7355',
+  weight: 1.5,
+  color: '#2c1810',
+  fillOpacity: 0.5,
+}
+
+const HOVER_STYLE = {
+  ...DEFAULT_STYLE,
+  fillOpacity: 0.75,
+}
+
+const SELECTED_STYLE = {
+  fillColor: '#6b4423',
+  weight: 1.5,
+  color: '#2c1810',
+  fillOpacity: 0.85,
+}
+
+const RESOURCES = [
+  { icon: '🌾', label: 'Buğday', value: 120 },
+  { icon: '⚙️', label: 'Demir', value: 85 },
+  { icon: '🛢️', label: 'Petrol', value: 40 },
+  { icon: '💰', label: 'Para', value: 200 },
+  { icon: '👤', label: 'NİG', value: 30 },
+]
+
+function TopBar() {
+  return (
+    <div className="top-bar">
+      <span className="bar-logo">THE RECKONING</span>
+      <span className="bar-year">1914</span>
+      <span className="bar-turn">TUR: 1 / 4</span>
+    </div>
+  )
+}
+
+function BottomBar() {
+  return (
+    <div className="bottom-bar">
+      {RESOURCES.map(({ icon, label, value }) => (
+        <div key={label} className="resource-item">
+          <span className="resource-icon">{icon}</span>
+          <span className="resource-label">{label}</span>
+          <span className="resource-value">{value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const PANEL_ROWS = [
+  { label: 'Nüfus', key: 'nufus' },
+  { label: 'Kaynaklar', key: 'kaynaklar' },
+  { label: 'Arazi', key: 'arazi' },
+  { label: 'Stratejik Değer', key: 'stratejik' },
+]
+
+const NA = 'Veri mevcut değil'
+
+function CountryPanel({ country, onClose }) {
+  if (!country) return null
+  const data = ww1Countries[country.name] ?? null
+  return (
+    <div className="country-panel">
+      <span className="panel-logo">THE RECKONING</span>
+      <button className="panel-close" onClick={onClose}>✕</button>
+      <h3 className="panel-country-name">{country.name}</h3>
+      <div className="panel-divider" />
+      <ul className="panel-stats">
+        {PANEL_ROWS.map(({ label, key }) => (
+          <li key={key}>
+            <span className="stat-label">{label}</span>
+            <span className="stat-value">{data?.[key] ?? NA}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function App() {
+  const [geoData, setGeoData] = useState(null)
+  const [selectedCountry, setSelectedCountry] = useState(null)
+  const selectedLayerRef = useRef(null)
+  const geoJsonRef = useRef(null)
+
+  useEffect(() => {
+    fetch(GEOJSON_URL)
+      .then((res) => res.json())
+      .then((data) => setGeoData(data))
+      .catch((err) => console.error('GeoJSON yüklenemedi:', err))
+  }, [])
+
+  function resetSelected() {
+    if (selectedLayerRef.current) {
+      selectedLayerRef.current.setStyle(DEFAULT_STYLE)
+      selectedLayerRef.current = null
+    }
+  }
+
+  function onEachFeature(feature, layer) {
+    layer.on({
+      mouseover(e) {
+        const l = e.target
+        if (l !== selectedLayerRef.current) {
+          l.setStyle(HOVER_STYLE)
+        }
+      },
+      mouseout(e) {
+        const l = e.target
+        if (l !== selectedLayerRef.current) {
+          l.setStyle(DEFAULT_STYLE)
+        }
+      },
+      click(e) {
+        resetSelected()
+        const l = e.target
+        l.setStyle(SELECTED_STYLE)
+        selectedLayerRef.current = l
+        const modernName = feature.properties.ADMIN || feature.properties.name || 'Bilinmiyor'
+        setSelectedCountry({
+          name: resolveCountryName(modernName),
+        })
+      },
+    })
+  }
+
+  return (
+    <>
+      <TopBar />
+      <div className="map-wrapper">
+      <MapContainer
+        center={[20, 10]}
+        zoom={3}
+        style={{ width: '100%', height: '100%' }}
+        zoomControl={true}
+      >
+        <TileLayer
+          url="https://tiles.stadiamaps.com/tiles/stamen_watercolor/{z}/{x}/{y}.jpg"
+          attribution='Map tiles by <a href="https://stamen.com">Stamen Design</a>, under <a href="https://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. Data by <a href="https://openstreetmap.org">OpenStreetMap</a>, under <a href="https://opendatacommons.org/licenses/odbl">ODbL</a>.'
+        />
+        {geoData && (
+          <GeoJSON
+            ref={geoJsonRef}
+            data={geoData}
+            style={DEFAULT_STYLE}
+            onEachFeature={onEachFeature}
+          />
+        )}
+      </MapContainer>
+
+      <CountryPanel
+        country={selectedCountry}
+        onClose={() => {
+          resetSelected()
+          setSelectedCountry(null)
+        }}
+      />
+      </div>
+      <BottomBar />
+    </>
+  )
+}
+
+export default App
