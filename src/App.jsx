@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, GeoJSON } from 'react-leaflet'
+import { io } from 'socket.io-client'
 import ww1Countries from './data/ww1Countries'
 import { fetchWW1Borders } from './data/ww1Borders'
 import './App.css'
@@ -192,6 +193,8 @@ function CountryPanel({ country, onClose }) {
 function App() {
   const [geoData, setGeoData] = useState(null)
   const [selectedCountry, setSelectedCountry] = useState(null)
+  const [socket, setSocket] = useState(null)
+  const [players, setPlayers] = useState({})
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
 
@@ -199,6 +202,26 @@ function App() {
     fetchWW1Borders()
       .then((data) => setGeoData(data))
       .catch((err) => console.error('WW1 sınırları yüklenemedi:', err))
+  }, [])
+
+  useEffect(() => {
+    const newSocket = io('http://localhost:3001')
+
+    newSocket.on('connect', () => {
+      console.log('Sunucuya bağlandı:', newSocket.id)
+    })
+
+    newSocket.on('gameState', (state) => {
+      console.log('Oyun durumu:', state)
+    })
+
+    newSocket.on('playersUpdate', (updatedPlayers) => {
+      setPlayers(updatedPlayers)
+    })
+
+    setSocket(newSocket)
+
+    return () => newSocket.disconnect()
   }, [])
 
   function resetSelected() {
@@ -228,9 +251,11 @@ function App() {
         l.setStyle(SELECTED_STYLE)
         selectedLayerRef.current = l
         const modernName = feature.properties.NAME || feature.properties.name || 'Bilinmiyor'
-        setSelectedCountry({
-          name: resolveCountryName(modernName),
-        })
+        const ww1Name = resolveCountryName(modernName)
+        setSelectedCountry({ name: ww1Name })
+        if (socket) {
+          socket.emit('selectCountry', ww1Name)
+        }
       },
     })
   }
