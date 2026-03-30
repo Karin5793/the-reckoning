@@ -30,12 +30,13 @@ io.on('connection', (socket) => {
   socket.emit('gameState', gameState);
 
   // Oyuncu ülke seçti
-  socket.on('selectCountry', (countryName) => {
+  socket.on('selectCountry', ({ name, country }) => {
     gameState.players[socket.id] = {
-      country: countryName,
+      name,
+      country,
       connectedAt: new Date()
     };
-    console.log(`${socket.id} -> ${countryName} seçti`);
+    console.log(`${name} -> ${country} seçti`);
     io.emit('playersUpdate', gameState.players);
   });
 
@@ -51,6 +52,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', gameState });
 });
 
-server.listen(3001, () => {
-  console.log('Server çalışıyor: http://localhost:3001');
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => {
+  console.log(`Server çalışıyor: http://localhost:${PORT}`);
 });

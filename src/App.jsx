@@ -190,11 +190,70 @@ function CountryPanel({ country, onClose }) {
   )
 }
 
+const PLAYABLE_COUNTRIES = [
+  'Osmanlı İmparatorluğu',
+  'Alman İmparatorluğu',
+  'Çarlık Rusyası',
+  'Avusturya-Macaristan',
+  'Büyük Britanya İmparatorluğu',
+  'Fransa Cumhuriyeti',
+  'İtalya Krallığı',
+  'Japon İmparatorluğu',
+  'Amerika Birleşik Devletleri',
+  'Sırbistan Krallığı',
+  'Romanya Krallığı',
+  'Bulgaristan Çarlığı',
+]
+
+function LobbyScreen({ onEnter, socket }) {
+  const [playerName, setPlayerName] = useState('')
+  const [chosenCountry, setChosenCountry] = useState(PLAYABLE_COUNTRIES[0])
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (!playerName.trim()) return
+    if (socket) {
+      socket.emit('selectCountry', { name: playerName.trim(), country: chosenCountry })
+    }
+    onEnter({ name: playerName.trim(), country: chosenCountry })
+  }
+
+  return (
+    <div className="lobby-screen">
+      <div className="lobby-card">
+        <h1 className="lobby-title">THE RECKONING</h1>
+        <p className="lobby-year">1914</p>
+        <form className="lobby-form" onSubmit={handleSubmit}>
+          <input
+            className="lobby-input"
+            type="text"
+            placeholder="Adın"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+            maxLength={32}
+          />
+          <select
+            className="lobby-select"
+            value={chosenCountry}
+            onChange={(e) => setChosenCountry(e.target.value)}
+          >
+            {PLAYABLE_COUNTRIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <button className="lobby-btn" type="submit">Savaşa Gir</button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [geoData, setGeoData] = useState(null)
   const [selectedCountry, setSelectedCountry] = useState(null)
   const [socket, setSocket] = useState(null)
   const [players, setPlayers] = useState({})
+  const [player, setPlayer] = useState(null)
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
 
@@ -253,11 +312,15 @@ function App() {
         const modernName = feature.properties.NAME || feature.properties.name || 'Bilinmiyor'
         const ww1Name = resolveCountryName(modernName)
         setSelectedCountry({ name: ww1Name })
-        if (socket) {
-          socket.emit('selectCountry', ww1Name)
+        if (socket && player) {
+          socket.emit('selectCountry', { name: player.name, country: ww1Name })
         }
       },
     })
+  }
+
+  if (!player) {
+    return <LobbyScreen onEnter={setPlayer} socket={socket} />
   }
 
   return (

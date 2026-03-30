@@ -1,3 +1,101 @@
+/* ── Lobby Screen ────────────────────────────────────── */
+
+.lobby-screen {
+  position: fixed;
+  inset: 0;
+  background: #0e0b07;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  font-family: serif;
+}
+
+.lobby-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.lobby-title {
+  font-family: serif;
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: #d4c9a8;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+  text-align: center;
+}
+
+.lobby-year {
+  font-family: serif;
+  font-size: 22px;
+  letter-spacing: 0.25em;
+  color: #8b7355;
+  margin: 0 0 40px;
+  text-align: center;
+}
+
+.lobby-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  width: 280px;
+}
+
+.lobby-input,
+.lobby-select {
+  background: #1a1510;
+  border: 1px solid #6b5a3e;
+  color: #d4c9a8;
+  padding: 8px 10px;
+  font-family: serif;
+  font-size: 14px;
+  outline: none;
+  border-radius: 2px;
+  transition: border-color 0.15s;
+}
+
+.lobby-input::placeholder {
+  color: #5a4e38;
+}
+
+.lobby-input:focus,
+.lobby-select:focus {
+  border-color: #d4c9a8;
+}
+
+.lobby-select option {
+  background: #1a1510;
+  color: #d4c9a8;
+}
+
+.lobby-btn {
+  background: #6b4423;
+  color: #d4c9a8;
+  border: none;
+  padding: 10px 24px;
+  font-family: serif;
+  font-size: 14px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 2px;
+  margin-top: 6px;
+  transition: background 0.15s;
+}
+
+.lobby-btn:hover {
+  background: #8b5a30;
+}
+
+.lobby-btn:active {
+  background: #4e3019;
+}
+
 /* ── Layout ─────────────────────────────────────────── */
 
 .map-wrapper {
