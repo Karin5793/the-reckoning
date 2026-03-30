@@ -19,6 +19,7 @@ const gameState = {
   turn: 1,
   maxTurns: 4,
   players: {},
+  units: {},
   turnActive: false,
   turnDuration: 60000, // test: 1 dakika (prod: 7200000)
   turnEndTime: null,
@@ -79,6 +80,21 @@ io.on('connection', (socket) => {
       io.emit('turnTimer', { remaining });
       if (remaining <= 0) endTurn();
     }, 1000);
+  });
+
+  socket.on('placeUnit', (data) => {
+    const { country, unitType, playerId } = data;
+    console.log(`${playerId} -> ${country} -> ${unitType} yerleştirdi`);
+
+    if (!country || !unitType) return;
+
+    if (!gameState.units) gameState.units = {};
+    if (!gameState.units[country]) gameState.units[country] = {};
+    if (!gameState.units[country][unitType]) gameState.units[country][unitType] = 0;
+
+    gameState.units[country][unitType]++;
+
+    io.emit('unitsUpdate', gameState.units);
   });
 
   socket.on('endTurn', () => {

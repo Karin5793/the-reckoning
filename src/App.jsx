@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, GeoJSON } from 'react-leaflet'
+import { MapContainer, TileLayer, GeoJSON, Marker } from 'react-leaflet'
+import L from 'leaflet'
 import { io } from 'socket.io-client'
 import ww1Countries from './data/ww1Countries'
 import { fetchWW1Borders } from './data/ww1Borders'
@@ -109,17 +110,6 @@ function resolveCountryName(modernName) {
   return WW1_NAMES[modernName] ?? modernName
 }
 
-// WW1 adından GeoJSON feature NAME'lerine ters eşleme (1-to-many)
-const REVERSE_NAMES = Object.entries(WW1_NAMES).reduce((acc, [featureName, ww1Name]) => {
-  if (!acc[ww1Name]) acc[ww1Name] = []
-  acc[ww1Name].push(featureName)
-  return acc
-}, {})
-
-function resolveFeatureNames(ww1Name) {
-  return REVERSE_NAMES[ww1Name] ?? [ww1Name]
-}
-
 const BASE_BORDER = { weight: 1.5, color: '#2c1810' }
 
 const DEFAULT_STYLE = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.5 }
@@ -128,13 +118,72 @@ const SELECTED_STYLE = { ...BASE_BORDER, fillColor: '#6b4423', fillOpacity: 0.85
 const MY_STYLE      = { ...BASE_BORDER, fillColor: '#2d5a1b', fillOpacity: 0.75 }
 const ENEMY_STYLE   = { ...BASE_BORDER, fillColor: '#8b1a1a', fillOpacity: 0.75 }
 
-const RESOURCES = [
-  { icon: '🌾', label: 'Buğday', value: 120 },
-  { icon: '⚙️', label: 'Demir', value: 85 },
-  { icon: '🛢️', label: 'Petrol', value: 40 },
-  { icon: '💰', label: 'Para', value: 200 },
-  { icon: '👤', label: 'NİG', value: 30 },
+const INITIAL_RESOURCES = { bugday: 120, demir: 85, petrol: 40, para: 200, nig: 30 }
+
+const BOTTOM_BAR_ITEMS = [
+  { icon: '🌾', label: 'Buğday', key: 'bugday' },
+  { icon: '⚙️', label: 'Demir',  key: 'demir'  },
+  { icon: '🛢️', label: 'Petrol', key: 'petrol'  },
+  { icon: '💰', label: 'Para',   key: 'para'   },
+  { icon: '👤', label: 'NİG',    key: 'nig'    },
 ]
+
+const UNIT_TYPES = {
+  infantry: { label: 'Piyade Yerleştir',  icon: '⚔',  cost: { bugday: 10, para: 5  } },
+  artillery: { label: 'Topçu Yerleştir',  icon: '💣',  cost: { demir: 15,  para: 10 } },
+  cavalry:   { label: 'Süvari Yerleştir', icon: '🐴',  cost: { bugday: 8,  para: 8  } },
+}
+
+const RES_LABELS = { bugday: 'Buğday', demir: 'Demir', petrol: 'Petrol', para: 'Para', nig: 'NİG' }
+
+const countryCoordinates = {
+  'Osmanlı İmparatorluğu': [39, 35],
+  'Osmanlı İmparatorluğu (Kuveyt)': [29.3, 47.9],
+  'Osmanlı İmparatorluğu (Suriye)': [34, 38],
+  'Osmanlı İmparatorluğu (Mezopotamya)': [33, 44],
+  'Osmanlı İmparatorluğu (Lübnan)': [33.8, 35.9],
+  'Osmanlı İmparatorluğu (Filistin)': [31.9, 35.2],
+  'Osmanlı İmparatorluğu (Yemen)': [15.5, 44],
+  'Osmanlı İmparatorluğu (Makedonya)': [41.6, 21.7],
+  'Alman İmparatorluğu': [51, 10],
+  'Alman İmparatorluğu (Sömürge)': [-6, 35],
+  'Çarlık Rusyası': [60, 50],
+  'Çarlık Rusyası (Kafkasya)': [42, 44],
+  'Çarlık Rusyası (Orta Asya)': [43, 59],
+  'Çarlık Rusyası (Nüfuz Alanı)': [47, 106],
+  'Avusturya-Macaristan': [47, 16],
+  'Avusturya-Macaristan (Bohemya)': [50, 15.5],
+  'Avusturya-Macaristan (Slovakya)': [48.7, 19.5],
+  'Büyük Britanya İmparatorluğu': [52, -1],
+  'Fransa Cumhuriyeti': [46, 2],
+  'Fransa Cumhuriyeti (Sömürge)': [14, 2],
+  'İtalya Krallığı': [42, 12],
+  'İtalya Krallığı (Sömürge)': [32, 13],
+  'Japon İmparatorluğu': [36, 138],
+  'Amerika Birleşik Devletleri': [38, -97],
+  'Sırbistan Krallığı': [44, 21],
+  'Romanya Krallığı': [45, 25],
+  'Bulgaristan Çarlığı': [42, 25],
+  'Yunanistan Krallığı': [39, 22],
+  'Belçika Krallığı': [50, 4],
+  'Britanya Hindistanı': [22, 78],
+  'Britanya Hindistanı (Kuzeybatı)': [30, 70],
+  'Britanya Hindistanı (Bengal)': [23, 90],
+  'Polonya (Rus Kontrolü)': [52, 20],
+  'Ukrayna (Rus Kontrolü)': [49, 32],
+  'Belarus (Rus Kontrolü)': [53, 28],
+  'Finlandiya (Rus Kontrolü)': [64, 26],
+  'Baltık (Rus Kontrolü)': [57, 25],
+  'Fas (Fransız Protektora)': [32, -6],
+  'Mısır (İngiliz)': [26, 30],
+  'Persia (İran)': [32, 53],
+}
+
+function isOwnTerritory(countryKey, myCountry) {
+  if (!myCountry || !countryKey) return false
+  if (countryKey === myCountry) return true
+  return countryKey.startsWith(myCountry + ' (')
+}
 
 function formatTime(ms) {
   const totalSec = Math.max(0, Math.floor(ms / 1000))
@@ -159,14 +208,14 @@ function TopBar({ year, turn, maxTurns, turnActive, timeLeft }) {
   )
 }
 
-function BottomBar() {
+function BottomBar({ resources }) {
   return (
     <div className="bottom-bar">
-      {RESOURCES.map(({ icon, label, value }) => (
-        <div key={label} className="resource-item">
+      {BOTTOM_BAR_ITEMS.map(({ icon, label, key }) => (
+        <div key={key} className="resource-item">
           <span className="resource-icon">{icon}</span>
           <span className="resource-label">{label}</span>
-          <span className="resource-value">{value}</span>
+          <span className="resource-value">{resources[key]}</span>
         </div>
       ))}
     </div>
@@ -261,6 +310,37 @@ function LobbyScreen({ onEnter, socket }) {
   )
 }
 
+function ContextMenu({ menu, resources, onSelect, onClose }) {
+  if (!menu) return null
+  return (
+    <div
+      className="context-menu"
+      style={{ left: menu.x, top: menu.y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="context-menu-header">{menu.country}</div>
+      {Object.entries(UNIT_TYPES).map(([type, { label, icon, cost }]) => {
+        const canAfford = Object.entries(cost).every(([res, amt]) => resources[res] >= amt)
+        const costStr = Object.entries(cost)
+          .map(([res, amt]) => `${RES_LABELS[res]} ${amt}`)
+          .join(', ')
+        return (
+          <button
+            key={type}
+            className={`context-menu-item${canAfford ? '' : ' context-menu-item--disabled'}`}
+            onClick={() => canAfford && onSelect(type)}
+            disabled={!canAfford}
+          >
+            <span className="cm-icon">{icon}</span>
+            <span className="cm-label">{label}</span>
+            <span className="cm-cost">{costStr}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function PlayerListPanel({ players, currentPlayer }) {
   const entries = Object.values(players)
   return (
@@ -301,17 +381,27 @@ function App() {
   const [turnActive, setTurnActive] = useState(false)
   const [timeLeft, setTimeLeft] = useState(0)
   const [isHost, setIsHost] = useState(false)
+  const [resources, setResources] = useState(INITIAL_RESOURCES)
+  const [units, setUnits] = useState({})
+  const [contextMenu, setContextMenu] = useState(null)
+  const [turnClosedToast, setTurnClosedToast] = useState(null)
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
   const playersRef = useRef({})
   const playerRef = useRef(null)
+  const turnActiveRef = useRef(turnActive)
+  const toastTimeoutRef = useRef(null)
+
+  turnActiveRef.current = turnActive
 
   function getFeatureStyle(feature) {
     const rawName = feature.properties.NAME || feature.properties.name || ''
     const ww1Name = resolveCountryName(rawName)
     const myCountry = playerRef.current?.country
-    if (myCountry && ww1Name === myCountry) return MY_STYLE
-    const isEnemy = Object.values(playersRef.current).some((p) => p.country === ww1Name)
+    if (myCountry && ww1Name.startsWith(myCountry)) return MY_STYLE
+    const isEnemy = Object.values(playersRef.current).some(
+      (p) => p.country && ww1Name.startsWith(p.country)
+    )
     if (isEnemy) return ENEMY_STYLE
     return DEFAULT_STYLE
   }
@@ -325,6 +415,12 @@ function App() {
     fetchWW1Borders()
       .then((data) => setGeoData(data))
       .catch((err) => console.error('WW1 sınırları yüklenemedi:', err))
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -343,6 +439,11 @@ function App() {
       if (state.turnEndTime) {
         setTimeLeft(Math.max(0, state.turnEndTime - Date.now()))
       }
+      if (state.units) setUnits(state.units)
+    })
+
+    newSocket.on('unitsUpdate', (updatedUnits) => {
+      setUnits(updatedUnits)
     })
 
     newSocket.on('turnStarted', ({ year, turn, turnEndTime }) => {
@@ -394,6 +495,9 @@ function App() {
   }
 
   function onEachFeature(feature, layer) {
+    const rawName = feature.properties.NAME || feature.properties.name || ''
+    const ww1Name = resolveCountryName(rawName)
+
     layer.on({
       mouseover(e) {
         const l = e.target
@@ -408,19 +512,68 @@ function App() {
         }
       },
       click(e) {
+        setContextMenu(null)
         resetSelected()
         const l = e.target
         l.setStyle(SELECTED_STYLE)
         selectedLayerRef.current = l
         const modernName = feature.properties.NAME || feature.properties.name || 'Bilinmiyor'
-        const ww1Name = resolveCountryName(modernName)
-        setSelectedCountry({ name: ww1Name })
+        const resolved = resolveCountryName(modernName)
+        setSelectedCountry({ name: resolved })
         if (socket && player) {
-          socket.emit('selectCountry', { name: player.name, country: ww1Name })
+          socket.emit('selectCountry', { name: player.name, country: resolved })
         }
+      },
+      contextmenu(e) {
+        e.originalEvent.preventDefault()
+        if (!turnActiveRef.current) {
+          if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+          setTurnClosedToast('Tur kapalı — askeri eylemler için turu başlat')
+          toastTimeoutRef.current = setTimeout(() => {
+            setTurnClosedToast(null)
+            toastTimeoutRef.current = null
+          }, 2000)
+          return
+        }
+        const myCountry = playerRef.current?.country
+        if (!myCountry || !ww1Name.startsWith(myCountry)) return
+        setContextMenu({
+          x: e.originalEvent.clientX,
+          y: e.originalEvent.clientY,
+          country: ww1Name,
+        })
       },
     })
   }
+
+  function placeUnit(unitType) {
+    if (!contextMenu) return
+    const cost = UNIT_TYPES[unitType].cost
+    const canAfford = Object.entries(cost).every(([res, amt]) => resources[res] >= amt)
+    if (!canAfford) return
+    setResources((prev) => {
+      const next = { ...prev }
+      Object.entries(cost).forEach(([res, amt]) => { next[res] -= amt })
+      return next
+    })
+    socket?.emit('placeUnit', {
+      country: contextMenu.country,
+      unitType,
+      playerId: socket.id,
+    })
+    setContextMenu(null)
+  }
+
+  useEffect(() => {
+    if (!contextMenu) return
+    function handleOutsideClick() { setContextMenu(null) }
+    document.addEventListener('click', handleOutsideClick)
+    return () => document.removeEventListener('click', handleOutsideClick)
+  }, [contextMenu])
+
+  useEffect(() => {
+    console.log('[units] detail:', JSON.stringify(units, null, 2))
+  }, [units])
 
   if (!player) {
     return <LobbyScreen onEnter={handleEnterGame} socket={socket} />
@@ -436,6 +589,11 @@ function App() {
         timeLeft={timeLeft}
       />
       <div className="map-wrapper">
+      {turnClosedToast && (
+        <div className="turn-closed-toast" role="status">
+          {turnClosedToast}
+        </div>
+      )}
       <MapContainer
         center={[20, 10]}
         zoom={3}
@@ -454,6 +612,26 @@ function App() {
             onEachFeature={onEachFeature}
           />
         )}
+        {Object.entries(units).map(([country, unitData]) => {
+          if (!isOwnTerritory(country, player.country)) return null
+          const coords = countryCoordinates[country]
+          if (!coords || !unitData) return null
+          const piyade = unitData.piyade ?? unitData.infantry
+          const topcu = unitData.topcu ?? unitData.artillery
+          const suvari = unitData.suvari ?? unitData.cavalry
+          let text = ''
+          if (piyade) text += '⚔' + piyade + ' '
+          if (topcu) text += '💣' + topcu + ' '
+          if (suvari) text += '🐴' + suvari
+          if (!text.trim()) return null
+          const icon = L.divIcon({
+            className: '',
+            html: '<div style="background:rgba(0,0,0,0.85);color:white;padding:2px 5px;border-radius:3px;font-size:12px;border:1px solid #6b5a3e">' + text.trim() + '</div>',
+            iconSize: [80, 24],
+            iconAnchor: [40, 12],
+          })
+          return <Marker key={country} position={coords} icon={icon} />
+        })}
       </MapContainer>
 
       <CountryPanel
@@ -466,6 +644,13 @@ function App() {
 
       <PlayerListPanel players={players} currentPlayer={player} />
 
+      <ContextMenu
+        menu={contextMenu}
+        resources={resources}
+        onSelect={placeUnit}
+        onClose={() => setContextMenu(null)}
+      />
+
       {isHost && !turnActive && (
         <button
           className="start-turn-btn"
@@ -475,7 +660,7 @@ function App() {
         </button>
       )}
       </div>
-      <BottomBar />
+      <BottomBar resources={resources} />
     </>
   )
 }
