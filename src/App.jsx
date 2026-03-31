@@ -110,7 +110,8 @@ function resolveCountryName(modernName) {
   return WW1_NAMES[modernName] ?? modernName
 }
 
-const BASE_BORDER = { weight: 1.5, color: '#2c1810' }
+/** 1914 ülke sınırları — kalın çizgi */
+const BASE_BORDER = { weight: 2.8, color: '#2c1810' }
 
 const DEFAULT_STYLE = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.5 }
 const HOVER_STYLE   = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.75 }
@@ -206,17 +207,6 @@ function formatWarCountdown(sec) {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
 }
 
-function collectOwnUnits(units, myCountry) {
-  const totals = { infantry: 0, artillery: 0, cavalry: 0 }
-  Object.entries(units).forEach(([region, u]) => {
-    if (!isOwnTerritory(region, myCountry)) return
-    totals.infantry += u.infantry || 0
-    totals.artillery += u.artillery || 0
-    totals.cavalry += u.cavalry || 0
-  })
-  return totals
-}
-
 function empireAtTerritory(ww1Name, playersRecord) {
   const sorted = Object.values(playersRecord)
     .filter((p) => p?.country)
@@ -244,6 +234,18 @@ function territoryController(ww1Name, playersRecord, conquests) {
   const base = empireAtTerritory(ww1Name, playersRecord)
   if (!base) return null
   return effectiveEmpireWithConquests(base, conquests || {})
+}
+
+function collectOwnUnits(units, myCountry) {
+  const totals = { infantry: 0, artillery: 0, cavalry: 0 }
+  Object.entries(units || {}).forEach(([region, u]) => {
+    if (!u || typeof u !== 'object') return
+    if (!isOwnTerritory(region, myCountry)) return
+    totals.infantry += u.infantry || 0
+    totals.artillery += u.artillery || 0
+    totals.cavalry += u.cavalry || 0
+  })
+  return totals
 }
 
 function formatTime(ms) {
@@ -416,7 +418,7 @@ function ContextMenu({ menu, resources, onSelectUnit, onDeclareWar }) {
         </>
       ) : (
         <>
-          <div className="context-menu-header">{menu.country}</div>
+          <div className="context-menu-header">{menu.headerTitle ?? menu.country}</div>
           {Object.entries(UNIT_TYPES).map(([type, { label, icon, cost }]) => {
             const canAfford = Object.entries(cost).every(([res, amt]) => resources[res] >= amt)
             const costStr = Object.entries(cost)
@@ -996,9 +998,6 @@ function App() {
         const modernName = feature.properties.NAME || feature.properties.name || 'Bilinmiyor'
         const resolved = resolveCountryName(modernName)
         setSelectedCountry({ name: resolved })
-        if (socket && player) {
-          socket.emit('selectCountry', { name: player.name, country: resolved })
-        }
       },
       contextmenu(e) {
         e.originalEvent.preventDefault()
@@ -1022,6 +1021,7 @@ function App() {
             x: e.originalEvent.clientX,
             y: e.originalEvent.clientY,
             country: ww1Name,
+            headerTitle: ww1Name,
           })
           return
         }
