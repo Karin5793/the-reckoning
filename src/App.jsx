@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
-import { MapContainer, TileLayer, GeoJSON, Marker } from 'react-leaflet'
-import L from 'leaflet'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import mapboxgl from 'mapbox-gl'
 import { io } from 'socket.io-client'
 import ww1Countries from './data/ww1Countries'
 import './App.css'
@@ -111,26 +110,46 @@ function resolveCountryName(modernName) {
   return WW1_NAMES[modernName] ?? modernName
 }
 
-/** 1914 ülke sınırları — kalın çizgi */
-const BASE_BORDER = { weight: 2.8, color: '#2c1810' }
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
+const MAPBOX_STYLE = 'mapbox://styles/mapbox/light-v11'
+const WW1_GEOJSON_URL =
+  'https://raw.githubusercontent.com/aourednik/historical-basemaps/master/geojson/world_1914.geojson'
 
-const DEFAULT_STYLE = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.5 }
-const HOVER_STYLE   = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.75 }
-const SELECTED_STYLE = { ...BASE_BORDER, fillColor: '#6b4423', fillOpacity: 0.85 }
-const MY_STYLE      = { ...BASE_BORDER, fillColor: '#2d5a1b', fillOpacity: 0.75 }
+const SOURCE_WW1 = 'ww1-1914'
+const LAYER_WW1_FILL = 'ww1-1914-fill'
+const LAYER_WW1_LINE = 'ww1-1914-line'
 
-/** Oyuncu ülkeleri — haritada sahip rengi (sıra lobideki oyuncu listesiyle uyumlu) */
-const PLAYER_TERRITORY_COLORS = [
-  '#8b1a1a',
-  '#1e5a8c',
-  '#6b2d8b',
-  '#8b6914',
-  '#238b6a',
-  '#8c2d5c',
-  '#5c4a8b',
-  '#3d7a6b',
-  '#7a4a3d',
-]
+const TERR_COLOR_NEUTRAL = '#8b7355'
+const TERR_COLOR_MINE = '#2d5a1b'
+const TERR_COLOR_OTHER = '#8b1a1a'
+
+function processGeoForMap(geo) {
+  if (!geo?.features) return null
+  return {
+    type: 'FeatureCollection',
+    features: geo.features.map((f, i) => ({
+      ...f,
+      properties: {
+        ...f.properties,
+        featureId: i,
+        ww1Name: resolveCountryName(f.properties?.NAME || f.properties?.name || ''),
+      },
+    })),
+  }
+}
+
+function syncTerritoryFeatureStates(map, processed, playersRec, territoriesRec, myCountry) {
+  if (!map?.getSource?.(SOURCE_WW1) || !processed?.features) return
+  for (const f of processed.features) {
+    const id = f.properties.featureId
+    const ww1 = f.properties.ww1Name
+    const ctrl = territoryController(ww1, playersRec, territoriesRec)
+    let t = 'neutral'
+    if (ctrl && myCountry && ctrl === myCountry) t = 'mine'
+    else if (ctrl) t = 'other'
+    map.setFeatureState({ source: SOURCE_WW1, id }, { territory: t })
+  }
+}
 
 const EMPTY_RESOURCES = { bugday: 0, demir: 0, petrol: 0, para: 0, nig: 0 }
 
@@ -753,36 +772,168 @@ function App() {
   const [telegraphReadOpen, setTelegraphReadOpen] = useState(null)
   const [interceptToasts, setInterceptToasts] = useState([])
   const [turnClosedToast, setTurnClosedToast] = useState(null)
-  const selectedLayerRef = useRef(null)
-  const geoJsonRef = useRef(null)
+  const mapContainerRef = useRef(null)
+  const mapRef = useRef(null)
+  const markersRef = useRef({})
+  const selectedFeatureIdRef = useRef(null)
+  const processedGeoRef = useRef(null)
   const playersRef = useRef({})
   const territoriesRef = useRef({})
   const playerRef = useRef(null)
   const turnActiveRef = useRef(turnActive)
   const toastTimeoutRef = useRef(null)
 
-  turnActiveRef.current = turnActive
+  const processedGeo = useMemo(() => processGeoForMap(geoData), [geoData])
 
-  function getFeatureStyle(feature) {
-    const rawName = feature.properties.NAME || feature.properties.name || ''
-    const ww1Name = resolveCountryName(rawName)
-    const myCountry = playerRef.current?.country
-    const playersRec = playersRef.current
-    const ctrl = territoryController(ww1Name, playersRec, territoriesRef.current)
-    if (!ctrl) return DEFAULT_STYLE
-    if (myCountry && ctrl === myCountry) return MY_STYLE
-    const playerCountries = [
-      ...new Set(
-        Object.values(playersRec)
-          .map((p) => p.country)
-          .filter(Boolean),
-      ),
-    ].sort((a, b) => a.localeCompare(b, 'tr'))
-    const idx = playerCountries.indexOf(ctrl)
-    if (idx === -1) return DEFAULT_STYLE
-    const fillColor = PLAYER_TERRITORY_COLORS[idx % PLAYER_TERRITORY_COLORS.length]
-    return { ...BASE_BORDER, fillColor, fillOpacity: 0.75 }
-  }
+  useEffect(() => {
+    processedGeoRef.current = processedGeo
+  }, [processedGeo])
+
+  useEffect(() => {
+    turnActiveRef.current = turnActive
+  }, [turnActive])
+
+  const clearMapSelection = useCallback(() => {
+    const map = mapRef.current
+    const sid = selectedFeatureIdRef.current
+    if (map && sid != null && map.getSource(SOURCE_WW1)) {
+      try {
+        map.setFeatureState({ source: SOURCE_WW1, id: sid }, { selected: false })
+      } catch {
+        /* ignore */
+      }
+    }
+    selectedFeatureIdRef.current = null
+  }, [])
+
+  const trySetupWw1 = useCallback(() => {
+    const map = mapRef.current
+    const pg = processedGeoRef.current
+    if (!map || !map.isStyleLoaded() || !pg) return
+
+    if (!map.getSource(SOURCE_WW1)) {
+      map.addSource(SOURCE_WW1, { type: 'geojson', data: pg, promoteId: 'featureId' })
+      map.addLayer({
+        id: LAYER_WW1_FILL,
+        type: 'fill',
+        source: SOURCE_WW1,
+        paint: {
+          'fill-color': [
+            'match',
+            ['feature-state', 'territory'],
+            'mine',
+            TERR_COLOR_MINE,
+            'other',
+            TERR_COLOR_OTHER,
+            'neutral',
+            TERR_COLOR_NEUTRAL,
+            TERR_COLOR_NEUTRAL,
+          ],
+          'fill-opacity': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false],
+            0.72,
+            0.5,
+          ],
+        },
+      })
+      map.addLayer({
+        id: LAYER_WW1_LINE,
+        type: 'line',
+        source: SOURCE_WW1,
+        paint: {
+          'line-color': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false],
+            '#5c4030',
+            '#2c1810',
+          ],
+          'line-width': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false],
+            2.5,
+            1,
+          ],
+        },
+      })
+
+      map.on('click', LAYER_WW1_FILL, (e) => {
+        const f = e.features?.[0]
+        if (!f) return
+        const id = f.properties?.featureId
+        const ww1Name = f.properties?.ww1Name ?? 'Bilinmiyor'
+        setContextMenu(null)
+        clearMapSelection()
+        if (id != null && map.getSource(SOURCE_WW1)) {
+          map.setFeatureState({ source: SOURCE_WW1, id }, { selected: true })
+          selectedFeatureIdRef.current = id
+        }
+        setSelectedCountry({ name: ww1Name })
+      })
+
+      map.on('mouseenter', LAYER_WW1_FILL, () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', LAYER_WW1_FILL, () => {
+        map.getCanvas().style.cursor = ''
+      })
+
+      map.on('contextmenu', (e) => {
+        const m = mapRef.current
+        if (!m) return
+        const feats = m.queryRenderedFeatures(e.point, { layers: [LAYER_WW1_FILL] })
+        if (!feats.length) return
+        e.preventDefault()
+        e.originalEvent?.preventDefault?.()
+        const ww1Name = feats[0].properties?.ww1Name ?? ''
+        if (!turnActiveRef.current) {
+          if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+          setTurnClosedToast('Tur kapalı — askeri eylemler için turu başlat')
+          toastTimeoutRef.current = setTimeout(() => {
+            setTurnClosedToast(null)
+            toastTimeoutRef.current = null
+          }, 2000)
+          return
+        }
+        const myCountry = playerRef.current?.country
+        const myName = playerRef.current?.name
+        if (!myCountry) return
+        const empire = territoryController(ww1Name, playersRef.current, territoriesRef.current)
+        if (empire === myCountry) {
+          setContextMenu({
+            type: 'units',
+            x: e.originalEvent.clientX,
+            y: e.originalEvent.clientY,
+            country: ww1Name,
+            headerTitle: ww1Name,
+          })
+          return
+        }
+        if (!empire) return
+        const enemyHere = Object.values(playersRef.current).some(
+          (p) => p.country === empire && p.name !== myName,
+        )
+        if (!enemyHere) return
+        setContextMenu({
+          type: 'war',
+          x: e.originalEvent.clientX,
+          y: e.originalEvent.clientY,
+          defender: empire,
+        })
+      })
+    } else {
+      const src = map.getSource(SOURCE_WW1)
+      if (src && src.type === 'geojson') src.setData(pg)
+    }
+
+    syncTerritoryFeatureStates(
+      map,
+      pg,
+      playersRef.current,
+      territoriesRef.current,
+      playerRef.current?.country,
+    )
+  }, [clearMapSelection])
 
   function handleEnterGame(p) {
     playerRef.current = p
@@ -790,71 +941,87 @@ function App() {
   }
 
   useEffect(() => {
-    console.log('[GeoJSON] useEffect (fetch) mount')
-    console.log('Fetch başlıyor')
-    const url =
-      'https://raw.githubusercontent.com/aourednik/historical-basemaps/master/geojson/world_1914.geojson'
-    console.log('[GeoJSON] URL:', url)
-
-    fetch(url)
-      .then((r) => {
-        console.log('[GeoJSON] Yanıt alındı', {
-          ok: r.ok,
-          status: r.status,
-          statusText: r.statusText,
-          type: r.type,
-        })
-        console.log('[GeoJSON] Body JSON olarak parse ediliyor…')
-        return r.json()
-      })
-      .then((data) => {
-        const featureLen = Array.isArray(data?.features) ? data.features.length : null
-        console.log('[GeoJSON] Parse tamam', {
-          type: data?.type,
-          featureSayisi: featureLen,
-          ustSeviyeAnahtarlar: data && typeof data === 'object' ? Object.keys(data) : [],
-        })
-        console.log('GeoJSON yüklendi, feature sayısı:', featureLen)
-        console.log('[GeoJSON] setGeoData çağrılıyor')
-        setGeoData(data)
-        console.log('[GeoJSON] setGeoData tetiklendi (React state bir sonraki render’da güncellenir)')
-      })
-      .catch((err) => {
-        console.error('GeoJSON fetch hatası:', err)
-        console.error('[GeoJSON] Hata detayı', {
-          name: err?.name,
-          message: err?.message,
-          stack: err?.stack,
-        })
-      })
+    fetch(WW1_GEOJSON_URL)
+      .then((r) => r.json())
+      .then((data) => setGeoData(data))
+      .catch((err) => console.error('GeoJSON fetch hatası:', err))
   }, [])
-
-  useEffect(() => {
-    if (geoData == null) {
-      console.log('[GeoJSON state] geoData:', null, '(henüz yok veya sıfırlandı)')
-      return
-    }
-    console.log('[GeoJSON state] güncellendi', {
-      type: geoData.type,
-      featureSayisi: Array.isArray(geoData.features) ? geoData.features.length : 'features yok',
-      crs: geoData.crs ?? '(yok)',
-      ilkFeatureOrnek:
-        Array.isArray(geoData.features) && geoData.features[0]
-          ? {
-              geometryType: geoData.features[0].geometry?.type,
-              propertiesKeys: geoData.features[0].properties
-                ? Object.keys(geoData.features[0].properties)
-                : [],
-            }
-          : null,
-    })
-  }, [geoData])
 
   useEffect(() => {
     return () => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!player) return
+    const el = mapContainerRef.current
+    if (!el) return
+
+    mapboxgl.accessToken = MAPBOX_TOKEN
+    const map = new mapboxgl.Map({
+      container: el,
+      style: MAPBOX_STYLE,
+      center: [20, 45],
+      zoom: 3,
+    })
+    mapRef.current = map
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right')
+
+    const onLoad = () => {
+      trySetupWw1()
+    }
+    map.on('load', onLoad)
+
+    return () => {
+      map.off('load', onLoad)
+      map.remove()
+      mapRef.current = null
+      Object.values(markersRef.current).forEach((mk) => mk.remove())
+      markersRef.current = {}
+      selectedFeatureIdRef.current = null
+    }
+  }, [player, trySetupWw1])
+
+  useEffect(() => {
+    trySetupWw1()
+  }, [processedGeo, trySetupWw1])
+
+  useEffect(() => {
+    const map = mapRef.current
+    const pg = processedGeoRef.current
+    if (!map?.getSource?.(SOURCE_WW1) || !pg) return
+    syncTerritoryFeatureStates(map, pg, players, territories, player?.country)
+  }, [players, territories, player?.country])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !player) return
+    Object.values(markersRef.current).forEach((mk) => mk.remove())
+    markersRef.current = {}
+    for (const [country, unitData] of Object.entries(units)) {
+      if (!isOwnTerritory(country, player.country)) continue
+      const coords = countryCoordinates[country]
+      if (!coords || !unitData) continue
+      const piyade = unitData.piyade ?? unitData.infantry
+      const topcu = unitData.topcu ?? unitData.artillery
+      const suvari = unitData.suvari ?? unitData.cavalry
+      let text = ''
+      if (piyade) text += `⚔${piyade} `
+      if (topcu) text += `💣${topcu} `
+      if (suvari) text += `🐴${suvari}`
+      if (!text.trim()) continue
+      const el = document.createElement('div')
+      el.setAttribute(
+        'style',
+        'background:rgba(0,0,0,0.85);color:white;padding:2px 5px;border-radius:3px;font-size:12px;border:1px solid #6b5a3e',
+      )
+      el.textContent = text.trim()
+      const [lat, lng] = coords
+      const marker = new mapboxgl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map)
+      markersRef.current[country] = marker
+    }
+  }, [units, player])
 
   useEffect(() => {
     const newSocket = io(SERVER_URL)
@@ -996,14 +1163,6 @@ function App() {
     return () => newSocket.disconnect()
   }, [])
 
-  useEffect(() => {
-    if (!geoJsonRef.current) return
-    geoJsonRef.current.eachLayer((layer) => {
-      if (!layer.feature || layer === selectedLayerRef.current) return
-      layer.setStyle(getFeatureStyle(layer.feature))
-    })
-  }, [players, territories])
-
   const warPanelKey = warPanel
     ? `${warPanel.role}-${warPanel.warId ?? 'atk'}-${warPanel.attacker}-${warPanel.defender}`
     : ''
@@ -1019,84 +1178,6 @@ function App() {
     }, 1000)
     return () => clearInterval(id)
   }, [warPanelKey])
-
-  function resetSelected() {
-    if (selectedLayerRef.current) {
-      const f = selectedLayerRef.current.feature
-      selectedLayerRef.current.setStyle(f ? getFeatureStyle(f) : DEFAULT_STYLE)
-      selectedLayerRef.current = null
-    }
-  }
-
-  function onEachFeature(feature, layer) {
-    const rawName = feature.properties.NAME || feature.properties.name || ''
-    const ww1Name = resolveCountryName(rawName)
-
-    layer.on({
-      mouseover(e) {
-        const l = e.target
-        if (l !== selectedLayerRef.current) {
-          l.setStyle(HOVER_STYLE)
-        }
-      },
-      mouseout(e) {
-        const l = e.target
-        if (l !== selectedLayerRef.current) {
-          l.setStyle(getFeatureStyle(feature))
-        }
-      },
-      click(e) {
-        setContextMenu(null)
-        resetSelected()
-        const l = e.target
-        l.setStyle(SELECTED_STYLE)
-        selectedLayerRef.current = l
-        const modernName = feature.properties.NAME || feature.properties.name || 'Bilinmiyor'
-        const resolved = resolveCountryName(modernName)
-        setSelectedCountry({ name: resolved })
-      },
-      contextmenu(e) {
-        e.originalEvent.preventDefault()
-        if (!turnActiveRef.current) {
-          if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-          setTurnClosedToast('Tur kapalı — askeri eylemler için turu başlat')
-          toastTimeoutRef.current = setTimeout(() => {
-            setTurnClosedToast(null)
-            toastTimeoutRef.current = null
-          }, 2000)
-          return
-        }
-        const myCountry = playerRef.current?.country
-        const myName = playerRef.current?.name
-        if (!myCountry) return
-
-        const empire = territoryController(ww1Name, playersRef.current, territoriesRef.current)
-        if (empire === myCountry) {
-          setContextMenu({
-            type: 'units',
-            x: e.originalEvent.clientX,
-            y: e.originalEvent.clientY,
-            country: ww1Name,
-            headerTitle: ww1Name,
-          })
-          return
-        }
-
-        if (!empire) return
-        const enemyHere = Object.values(playersRef.current).some(
-          (p) => p.country === empire && p.name !== myName,
-        )
-        if (!enemyHere) return
-
-        setContextMenu({
-          type: 'war',
-          x: e.originalEvent.clientX,
-          y: e.originalEvent.clientY,
-          defender: empire,
-        })
-      },
-    })
-  }
 
   function placeUnit(unitType) {
     if (!contextMenu || contextMenu.type !== 'units') return
@@ -1171,10 +1252,6 @@ function App() {
     setTelegraphPanelCountry(null)
   }
 
-  useEffect(() => {
-    console.log('[units] detail:', JSON.stringify(units, null, 2))
-  }, [units])
-
   if (!player) {
     return <LobbyScreen onEnter={handleEnterGame} socket={socket} />
   }
@@ -1226,50 +1303,12 @@ function App() {
           </div>
         ))}
       </div>
-      <MapContainer
-        center={[20, 10]}
-        zoom={3}
-        style={{ width: '100%', height: '100%' }}
-        zoomControl={true}
-      >
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="© OpenStreetMap contributors"
-        />
-        {geoData && (
-          <GeoJSON
-            ref={geoJsonRef}
-            data={geoData}
-            style={getFeatureStyle}
-            onEachFeature={onEachFeature}
-          />
-        )}
-        {Object.entries(units).map(([country, unitData]) => {
-          if (!isOwnTerritory(country, player.country)) return null
-          const coords = countryCoordinates[country]
-          if (!coords || !unitData) return null
-          const piyade = unitData.piyade ?? unitData.infantry
-          const topcu = unitData.topcu ?? unitData.artillery
-          const suvari = unitData.suvari ?? unitData.cavalry
-          let text = ''
-          if (piyade) text += '⚔' + piyade + ' '
-          if (topcu) text += '💣' + topcu + ' '
-          if (suvari) text += '🐴' + suvari
-          if (!text.trim()) return null
-          const icon = L.divIcon({
-            className: '',
-            html: '<div style="background:rgba(0,0,0,0.85);color:white;padding:2px 5px;border-radius:3px;font-size:12px;border:1px solid #6b5a3e">' + text.trim() + '</div>',
-            iconSize: [80, 24],
-            iconAnchor: [40, 12],
-          })
-          return <Marker key={country} position={coords} icon={icon} />
-        })}
-      </MapContainer>
+      <div ref={mapContainerRef} className="reckoning-map-root" />
 
       <CountryPanel
         country={selectedCountry}
         onClose={() => {
-          resetSelected()
+          clearMapSelection()
           setSelectedCountry(null)
         }}
       />
