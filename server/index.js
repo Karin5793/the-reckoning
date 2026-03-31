@@ -22,6 +22,92 @@ const io = new Server(server, {
   },
 });
 
+const MILITARY_1910 = {
+  'Osmanlı İmparatorluğu': {
+    istanbul: { piyade: 40, topcu: 80, suvari: 5, moral: 60 },
+    edirne: { piyade: 25, topcu: 50, suvari: 3, moral: 58 },
+    erzurum: { piyade: 30, topcu: 40, suvari: 4, moral: 62 },
+    diyarbakir: { piyade: 20, topcu: 30, suvari: 3, moral: 60 },
+    halep: { piyade: 22, topcu: 35, suvari: 4, moral: 58 },
+    sam: { piyade: 18, topcu: 28, suvari: 3, moral: 57 },
+    bagdat: { piyade: 25, topcu: 32, suvari: 5, moral: 60 },
+    basra: { piyade: 15, topcu: 20, suvari: 2, moral: 55 },
+    ankara: { piyade: 20, topcu: 30, suvari: 3, moral: 60 },
+    beyrut: { piyade: 12, topcu: 18, suvari: 2, moral: 56 },
+    mekke: { piyade: 10, topcu: 12, suvari: 2, moral: 52 },
+    trabzon: { piyade: 15, topcu: 20, suvari: 2, moral: 58 },
+    izmir: { piyade: 18, topcu: 25, suvari: 2, moral: 59 },
+  },
+  'Çarlık Rusyası': {
+    petersburg: { piyade: 80, topcu: 200, suvari: 20, moral: 65 },
+    moskova: { piyade: 90, topcu: 180, suvari: 25, moral: 67 },
+    kiev: { piyade: 70, topcu: 150, suvari: 30, moral: 65 },
+    varsova: { piyade: 100, topcu: 160, suvari: 20, moral: 63 },
+    tiflis: { piyade: 50, topcu: 80, suvari: 15, moral: 64 },
+    baku: { piyade: 30, topcu: 50, suvari: 8, moral: 62 },
+    odessa: { piyade: 45, topcu: 90, suvari: 12, moral: 64 },
+    taskent: { piyade: 35, topcu: 60, suvari: 10, moral: 60 },
+  },
+  'Alman İmparatorluğu': {
+    berlin: { piyade: 100, topcu: 300, suvari: 20, moral: 82 },
+    hamburg: { piyade: 40, topcu: 120, suvari: 8, moral: 80 },
+    munih: { piyade: 55, topcu: 160, suvari: 12, moral: 81 },
+    koln: { piyade: 60, topcu: 180, suvari: 10, moral: 82 },
+    konigsberg: { piyade: 45, topcu: 130, suvari: 10, moral: 80 },
+    alsas: { piyade: 50, topcu: 140, suvari: 8, moral: 79 },
+  },
+  'Avusturya-Macaristan': {
+    viyana: { piyade: 60, topcu: 150, suvari: 15, moral: 72 },
+    budapeste: { piyade: 50, topcu: 120, suvari: 18, moral: 70 },
+    prag: { piyade: 45, topcu: 110, suvari: 10, moral: 71 },
+    lvov: { piyade: 40, topcu: 90, suvari: 12, moral: 69 },
+    saraybosna: { piyade: 30, topcu: 70, suvari: 8, moral: 67 },
+  },
+  'Büyük Britanya İmparatorluğu': {
+    londra: { piyade: 50, topcu: 120, suvari: 10, moral: 78 },
+    kahire: { piyade: 35, topcu: 80, suvari: 12, moral: 75 },
+    delhi: { piyade: 70, topcu: 90, suvari: 20, moral: 73 },
+    bombay: { piyade: 40, topcu: 60, suvari: 10, moral: 72 },
+    pretoria: { piyade: 30, topcu: 50, suvari: 8, moral: 74 },
+  },
+  'Fransa Cumhuriyeti': {
+    paris: { piyade: 90, topcu: 200, suvari: 15, moral: 76 },
+    marsilya: { piyade: 50, topcu: 120, suvari: 8, moral: 74 },
+    cezayir: { piyade: 35, topcu: 70, suvari: 10, moral: 70 },
+  },
+  'İtalya Krallığı': {
+    roma: { piyade: 50, topcu: 100, suvari: 8, moral: 65 },
+    milano: { piyade: 40, topcu: 90, suvari: 6, moral: 66 },
+  },
+  'Amerika Birleşik Devletleri': {
+    washington: { piyade: 20, topcu: 50, suvari: 5, moral: 70 },
+    newyork: { piyade: 15, topcu: 40, suvari: 3, moral: 70 },
+    chicago: { piyade: 12, topcu: 35, suvari: 3, moral: 69 },
+    sanfrancisco: { piyade: 10, topcu: 30, suvari: 2, moral: 68 },
+  },
+  'Japon İmparatorluğu': {
+    tokyo: { piyade: 60, topcu: 140, suvari: 8, moral: 80 },
+    osaka: { piyade: 40, topcu: 90, suvari: 5, moral: 79 },
+    seul: { piyade: 35, topcu: 70, suvari: 6, moral: 77 },
+  },
+  'Sırbistan Krallığı': { belgrad: { piyade: 30, topcu: 60, suvari: 8, moral: 72 } },
+  'Romanya Krallığı': { bukres: { piyade: 40, topcu: 80, suvari: 12, moral: 65 } },
+  'Bulgaristan Çarlığı': { sofya: { piyade: 35, topcu: 70, suvari: 8, moral: 68 } },
+  'Yunanistan Krallığı': { atina: { piyade: 20, topcu: 40, suvari: 4, moral: 64 } },
+  'Belçika Krallığı': { bruksel: { piyade: 25, topcu: 60, suvari: 4, moral: 66 } },
+  'Persia (İran)': { tahran: { piyade: 15, topcu: 25, suvari: 8, moral: 50 } },
+};
+
+function initMilitary() {
+  const military = {};
+  Object.entries(MILITARY_1910).forEach(([empire, cities]) => {
+    Object.entries(cities).forEach(([cityId, units]) => {
+      military[cityId] = { ...units, empire };
+    });
+  });
+  return military;
+}
+
 const INITIAL_COUNTRY_RESOURCES = {
   'Osmanlı İmparatorluğu': { bugday: 80, demir: 40, petrol: 120, para: 150, nig: 25 },
   'Alman İmparatorluğu': { bugday: 90, demir: 180, petrol: 30, para: 200, nig: 80 },
@@ -61,7 +147,7 @@ const UNIT_COST = {
 const WAR_TACTIC_SECONDS = 60; // test: 60s; prod: 30 * 60
 
 const gameState = {
-  year: 1914,
+  year: 1910,
   turn: 1,
   maxTurns: 4,
   players: {},
@@ -74,10 +160,16 @@ const gameState = {
   turnEndTime: null,
   turnStartTime: null,
   turnLedger: { wars: [], territories: {}, interceptedTelegraphs: [] },
+  military: {},
 };
+
+gameState.military = initMilitary();
 
 let hostId = null;
 let turnTimerInterval = null;
+
+/** @type {Record<string, { attacks: unknown[], tactics?: unknown, attackerId: string, defenderEmpire: string }>} */
+const activeWars = {};
 
 function emitResourcesForCountry(country) {
   const snapshot = gameState.countryResources[country];
@@ -597,6 +689,51 @@ io.on('connection', (socket) => {
     emitResourcesForCountry(player.country);
   });
 
+  socket.on('moveUnits', ({ fromCityId, toCityId, units }) => {
+    if (!gameState.turnActive) {
+      socket.emit('moveUnitsResult', { success: false, reason: 'Tur kapalı' });
+      return;
+    }
+    const player = gameState.players[socket.id];
+    if (!player) return;
+
+    const u = units && typeof units === 'object' ? units : {};
+    const from = gameState.military[fromCityId];
+    if (!from || from.empire !== player.country) {
+      socket.emit('moveUnitsResult', { success: false, reason: 'Bu şehir sana ait değil' });
+      return;
+    }
+
+    if (
+      (u.piyade || 0) > from.piyade ||
+      (u.topcu || 0) > from.topcu ||
+      (u.suvari || 0) > from.suvari
+    ) {
+      socket.emit('moveUnitsResult', { success: false, reason: 'Yetersiz asker' });
+      return;
+    }
+
+    from.piyade -= u.piyade || 0;
+    from.topcu -= u.topcu || 0;
+    from.suvari -= u.suvari || 0;
+
+    if (!gameState.military[toCityId]) {
+      gameState.military[toCityId] = {
+        piyade: 0,
+        topcu: 0,
+        suvari: 0,
+        moral: from.moral,
+        empire: player.country,
+      };
+    }
+    gameState.military[toCityId].piyade += u.piyade || 0;
+    gameState.military[toCityId].topcu += u.topcu || 0;
+    gameState.military[toCityId].suvari += u.suvari || 0;
+
+    io.emit('militaryUpdate', gameState.military);
+    socket.emit('moveUnitsResult', { success: true });
+  });
+
   socket.on('declareWar', (data) => {
     const { attacker, defender, attackerTactic, attackerUnits } = data || {};
     const player = gameState.players[socket.id];
@@ -638,6 +775,80 @@ io.on('connection', (socket) => {
         });
       }
     });
+  });
+
+  socket.on('declareMultiWarAttack', ({ attacks, tactics }) => {
+    const player = gameState.players[socket.id];
+    if (!player || !Array.isArray(attacks) || attacks.length === 0) return;
+    if (!gameState.turnActive) return;
+    const first = attacks[0];
+    if (!first || first.fromEmpire !== player.country) return;
+
+    const warId = `war_${Date.now()}`;
+    const defenderEmpire = first.toEmpire;
+    activeWars[warId] = {
+      attacks,
+      tactics: tactics && typeof tactics === 'object' ? tactics : {},
+      attackerId: socket.id,
+      defenderEmpire,
+    };
+
+    const defenderEntry = Object.entries(gameState.players).find(
+      ([, p]) => p.country === defenderEmpire,
+    );
+    if (defenderEntry) {
+      const [defenderSocketId] = defenderEntry;
+      io.to(defenderSocketId).emit('multiWarDeclared', {
+        warId,
+        attacks,
+        timeLeft: 60,
+      });
+    }
+  });
+
+  socket.on('submitMultiDefense', ({ warId, defenseTactics }) => {
+    const war = activeWars[warId];
+    if (!war) return;
+    const player = gameState.players[socket.id];
+    if (!player || player.country !== war.defenderEmpire) return;
+
+    io.emit('multiWarResult', {
+      warId,
+      attacks: war.attacks,
+      result: 'Savaş sonuçlandı',
+      defenseTactics: defenseTactics && typeof defenseTactics === 'object' ? defenseTactics : {},
+    });
+    delete activeWars[warId];
+  });
+
+  socket.on('getLocationName', async ({ lat, lng }) => {
+    const nLat = typeof lat === 'number' ? lat : parseFloat(lat);
+    const nLng = typeof lng === 'number' ? lng : parseFloat(lng);
+    const fallback = `${Number.isFinite(nLat) ? nLat.toFixed(1) : '?'}°N ${Number.isFinite(nLng) ? nLng.toFixed(1) : '?'}°E`;
+    if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) {
+      socket.emit('locationNameResult', { lat: nLat, lng: nLng, name: fallback });
+      return;
+    }
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 50,
+        messages: [
+          {
+            role: 'user',
+            content: `1910 yılında lat:${nLat.toFixed(2)}, lng:${nLng.toFixed(2)} koordinatındaki bölgenin tarihi adı nedir? Sadece kısa isim yaz. Örnek: Sarıkamış, Galiçya, Ege Denizi`,
+          },
+        ],
+      });
+      const name =
+        response.content?.[0]?.text?.trim() ||
+        `${nLat.toFixed(1)}°N ${nLng.toFixed(1)}°E`;
+      socket.emit('locationNameResult', { lat: nLat, lng: nLng, name });
+      console.log('Konum adı:', name);
+    } catch (e) {
+      console.error('getLocationName:', e);
+      socket.emit('locationNameResult', { lat: nLat, lng: nLng, name: fallback });
+    }
   });
 
   socket.on('submitDefense', async (data) => {
