@@ -6,6 +6,8 @@ import ww1Countries from './data/ww1Countries'
 import { fetchWW1Borders } from './data/ww1Borders'
 import './App.css'
 
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3002';
+
 const WW1_NAMES = {
   'Turkey': 'Osmanlı İmparatorluğu',
   'Russia': 'Çarlık Rusyası',
@@ -801,7 +803,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const newSocket = io('http://localhost:3002')
+    const newSocket = io(SERVER_URL)
 
     newSocket.on('connect', () => {
       console.log('Sunucuya bağlandı:', newSocket.id)
