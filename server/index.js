@@ -6,6 +6,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const WW1_MAP_REGION_NAMES = require('./ww1MapRegionNames');
 
 const app = express();
 app.use(cors());
@@ -62,6 +63,7 @@ const gameState = {
   maxTurns: 4,
   players: {},
   units: {},
+  territories: {},
   wars: {},
   countryResources: JSON.parse(JSON.stringify(INITIAL_COUNTRY_RESOURCES)),
   turnActive: false,
@@ -133,6 +135,126 @@ function collectUnitsForCountry(units, country) {
     }
   });
   return totals;
+}
+
+function parseWarResult(text, attacker, defender) {
+  const result = {
+    winner: null,
+    attackerLosses: { piyade: 0, topcu: 0, suvari: 0 },
+    defenderLosses: { piyade: 0, topcu: 0, suvari: 0 },
+  };
+
+  const t = typeof text === 'string' ? text : '';
+  if (t.includes('SALDIRAN KAZANDI')) result.winner = attacker;
+  else if (t.includes('SAVUNAN KAZANDI')) result.winner = defender;
+  else result.winner = 'BERABERLIK';
+
+  const lines = t.split('\n');
+  let parsingAttacker = false;
+  let parsingDefender = false;
+
+  const attackerHeader = `${attacker} KAYIPLARI`;
+  const defenderHeader = `${defender} KAYIPLARI`;
+
+  lines.forEach((line) => {
+    if (line.includes(attackerHeader)) {
+      parsingAttacker = true;
+      parsingDefender = false;
+    }
+    if (line.includes(defenderHeader)) {
+      parsingAttacker = false;
+      parsingDefender = true;
+    }
+
+    const target =
+      parsingAttacker ? result.attackerLosses : parsingDefender ? result.defenderLosses : null;
+    if (!target) return;
+
+    const numbers = line.match(/[\d.]+/g);
+    if (!numbers) return;
+    const num = parseInt(numbers[0].replace(/\./g, ''), 10);
+    if (!Number.isFinite(num)) return;
+
+    const lower = line.toLowerCase();
+    if (lower.includes('piyade') || lower.includes('infantry')) {
+      target.piyade = num;
+    }
+    if (lower.includes('topçu') || lower.includes('topcu') || lower.includes('artill')) {
+      target.topcu = num;
+    }
+    if (
+      lower.includes('süvari') ||
+      lower.includes('suvari') ||
+      lower.includes('cavalry')
+    ) {
+      target.suvari = num;
+    }
+  });
+
+  return result;
+}
+
+function empireAtTerritoryServer(ww1Name, playersRecord) {
+  const sorted = Object.values(playersRecord)
+    .filter((p) => p?.country)
+    .sort((a, b) => b.country.length - a.country.length);
+  for (const p of sorted) {
+    const c = p.country;
+    if (ww1Name === c || ww1Name.startsWith(`${c} (`)) return c;
+  }
+  return null;
+}
+
+function effectiveTerritoryOwnerServer(ww1Name, players, territories) {
+  const o = territories[ww1Name];
+  if (o != null && o !== '') return o;
+  return empireAtTerritoryServer(ww1Name, players);
+}
+
+function transferDefenderTerritoriesToAttacker(attacker, defender) {
+  const { players, territories } = gameState;
+  const regionsToCheck = new Set([
+    ...WW1_MAP_REGION_NAMES,
+    ...Object.keys(territories || {}),
+  ]);
+  regionsToCheck.forEach((region) => {
+    if (effectiveTerritoryOwnerServer(region, players, territories) === defender) {
+      territories[region] = attacker;
+    }
+  });
+}
+
+function rawCasualtiesToUnitLosses(losses) {
+  const p = losses.piyade || 0;
+  const t = losses.topcu || 0;
+  const s = losses.suvari || 0;
+  return {
+    infantry: p === 0 ? 1 : Math.max(1, Math.floor(p / 1000)),
+    artillery: t === 0 ? 1 : Math.max(1, t),
+    cavalry: s === 0 ? 1 : Math.max(1, Math.floor(s / 100)),
+  };
+}
+
+function findUnitKey(units, country) {
+  if (!units || !country) return null;
+  if (units[country]) return country;
+  return Object.keys(units).find((k) => k.startsWith(country)) || null;
+}
+
+function subtractUnitsFromCountry(unitsObj, country, deltas) {
+  const key = findUnitKey(unitsObj || {}, country);
+  if (!key) return;
+  const u = unitsObj[key];
+  if (!u || typeof u !== 'object') return;
+  const rem = { ...deltas };
+  ['infantry', 'artillery', 'cavalry'].forEach((type) => {
+    if (rem[type] <= 0) return;
+    const cur = u[type] || 0;
+    if (cur <= 0) return;
+    const take = Math.min(cur, rem[type]);
+    u[type] = Math.max(0, cur - take);
+    rem[type] -= take;
+  });
 }
 
 async function resolveWar(warData) {
@@ -215,7 +337,7 @@ async function finalizeWarResolution(warId) {
     war.resolveTimer = null;
   }
 
-  const defenderUnits = gameState.units[war.defender];
+  const defenderUnits = collectUnitsForCountry(gameState.units, war.defender);
 
   const attackerUnits =
     war.attackerUnits && typeof war.attackerUnits === 'object'
@@ -244,15 +366,49 @@ async function finalizeWarResolution(warId) {
     ].join('\n');
   }
 
+  const aiResult = rawText;
+  const attacker = war.attacker;
+  const defender = war.defender;
+  const parsed = parseWarResult(aiResult, attacker, defender);
+
+  console.log(
+    'PARSED RESULT:',
+    JSON.stringify(parseWarResult(aiResult, attacker, defender), null, 2),
+  );
+  if (!gameState.units) gameState.units = {};
+  console.log('UNITS BEFORE:', JSON.stringify(gameState.units, null, 2));
+
+  subtractUnitsFromCountry(
+    gameState.units,
+    war.attacker,
+    rawCasualtiesToUnitLosses(parsed.attackerLosses),
+  );
+  subtractUnitsFromCountry(
+    gameState.units,
+    war.defender,
+    rawCasualtiesToUnitLosses(parsed.defenderLosses),
+  );
+
+  console.log('UNITS AFTER:', JSON.stringify(gameState.units, null, 2));
+
+  if (parsed.winner === war.attacker) {
+    transferDefenderTerritoriesToAttacker(war.attacker, war.defender);
+  }
+
   war.resolved = true;
   war.resolving = false;
   war.resultText = rawText;
+  war.parsedResult = parsed;
 
   io.emit('warResult', {
     attacker: war.attacker,
     defender: war.defender,
     result: rawText,
+    parsed,
   });
+
+  io.emit('territoriesUpdate', { ...gameState.territories });
+  io.emit('unitsUpdate', gameState.units);
 }
 
 function scheduleWarAutoResolve(warId) {

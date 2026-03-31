@@ -253,6 +253,13 @@
   color: #d4c9a8;
 }
 
+.war-result-winner {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #c9a227;
+}
+
 .war-result-matchup {
   margin: 0 0 20px;
   font-size: 14px;

@@ -215,6 +215,12 @@ function empireAtTerritory(ww1Name, playersRecord) {
   return null
 }
 
+function territoryController(ww1Name, playersRecord, overrides) {
+  const o = overrides?.[ww1Name]
+  if (o != null && o !== '') return o
+  return empireAtTerritory(ww1Name, playersRecord)
+}
+
 function formatTime(ms) {
   const totalSec = Math.max(0, Math.floor(ms / 1000))
   const h = Math.floor(totalSec / 3600)
@@ -442,7 +448,7 @@ function WarTacticPanel({
 
 function WarResultModal({ data, onClose }) {
   if (!data) return null
-  const { attacker, defender, result } = data
+  const { attacker, defender, result, parsed } = data
   const body =
     typeof result === 'string'
       ? result
@@ -457,6 +463,9 @@ function WarResultModal({ data, onClose }) {
         <p className="war-result-matchup">
           {attacker} <span className="war-result-vs">vs</span> {defender}
         </p>
+        {parsed?.winner != null && (
+          <p className="war-result-winner">Kazanan: {String(parsed.winner)}</p>
+        )}
         <div className="war-result-body">{body}</div>
         <button type="button" className="war-result-close" onClick={onClose}>
           Kapat
@@ -508,6 +517,7 @@ function App() {
   const [isHost, setIsHost] = useState(false)
   const [resources, setResources] = useState(EMPTY_RESOURCES)
   const [units, setUnits] = useState({})
+  const [territories, setTerritories] = useState({})
   const [contextMenu, setContextMenu] = useState(null)
   const [warPanel, setWarPanel] = useState(null)
   const [warTacticText, setWarTacticText] = useState('')
@@ -516,6 +526,7 @@ function App() {
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
   const playersRef = useRef({})
+  const territoriesRef = useRef({})
   const playerRef = useRef(null)
   const turnActiveRef = useRef(turnActive)
   const toastTimeoutRef = useRef(null)
@@ -526,10 +537,12 @@ function App() {
     const rawName = feature.properties.NAME || feature.properties.name || ''
     const ww1Name = resolveCountryName(rawName)
     const myCountry = playerRef.current?.country
-    if (myCountry && ww1Name.startsWith(myCountry)) return MY_STYLE
-    const isEnemy = Object.values(playersRef.current).some(
-      (p) => p.country && ww1Name.startsWith(p.country)
-    )
+    const ctrl = territoryController(ww1Name, playersRef.current, territoriesRef.current)
+    if (myCountry && ctrl === myCountry) return MY_STYLE
+    const isEnemy =
+      ctrl &&
+      ctrl !== myCountry &&
+      Object.values(playersRef.current).some((p) => p.country === ctrl)
     if (isEnemy) return ENEMY_STYLE
     return DEFAULT_STYLE
   }
@@ -568,10 +581,21 @@ function App() {
         setTimeLeft(Math.max(0, state.turnEndTime - Date.now()))
       }
       if (state.units) setUnits(state.units)
+      if (state.territories && typeof state.territories === 'object') {
+        territoriesRef.current = state.territories
+        setTerritories(state.territories)
+      }
     })
 
     newSocket.on('unitsUpdate', (updatedUnits) => {
       setUnits(updatedUnits)
+    })
+
+    newSocket.on('territoriesUpdate', (payload) => {
+      if (payload && typeof payload === 'object') {
+        territoriesRef.current = payload
+        setTerritories(payload)
+      }
     })
 
     newSocket.on('resourcesUpdate', (payload) => {
@@ -634,6 +658,7 @@ function App() {
         attacker: payload.attacker,
         defender: payload.defender,
         result: typeof payload.result === 'string' ? payload.result : String(payload.result ?? ''),
+        parsed: payload.parsed,
       })
     })
 
@@ -648,7 +673,7 @@ function App() {
       if (!layer.feature || layer === selectedLayerRef.current) return
       layer.setStyle(getFeatureStyle(layer.feature))
     })
-  }, [players])
+  }, [players, territories])
 
   const warPanelKey = warPanel
     ? `${warPanel.role}-${warPanel.warId ?? 'atk'}-${warPanel.attacker}-${warPanel.defender}`
@@ -719,7 +744,7 @@ function App() {
         const myName = playerRef.current?.name
         if (!myCountry) return
 
-        const empire = empireAtTerritory(ww1Name, playersRef.current)
+        const empire = territoryController(ww1Name, playersRef.current, territoriesRef.current)
         if (empire === myCountry) {
           setContextMenu({
             type: 'units',
