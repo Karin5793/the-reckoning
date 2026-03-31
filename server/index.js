@@ -69,7 +69,7 @@ const gameState = {
   turnDuration: 60000, // test: 1 dakika (prod: 7200000)
   turnEndTime: null,
   turnStartTime: null,
-  turnLedger: { wars: [], territories: {} },
+  turnLedger: { wars: [], territories: {}, interceptedTelegraphs: [] },
 };
 
 let hostId = null;
@@ -120,13 +120,18 @@ function endTurn() {
   gameState.turnStartTime = null;
 
   const dispatchYear = gameState.year;
-  const ledger = gameState.turnLedger || { wars: [], territories: {} };
+  const ledger = gameState.turnLedger || {
+    wars: [],
+    territories: {},
+    interceptedTelegraphs: [],
+  };
   const warsSnap = [...ledger.wars];
   const territoriesSnap = { ...ledger.territories };
+  const interceptedSnap = [...(ledger.interceptedTelegraphs || [])];
 
   gameState.year += 1;
   gameState.turn += 1;
-  gameState.turnLedger = { wars: [], territories: {} };
+  gameState.turnLedger = { wars: [], territories: {}, interceptedTelegraphs: [] };
 
   console.log(`Tur bitti. Yeni yıl: ${gameState.year}, Tur: ${gameState.turn}`);
   io.emit('turnEnded', {
@@ -135,6 +140,7 @@ function endTurn() {
     dispatchYear,
     wars: warsSnap,
     territories: territoriesSnap,
+    interceptedTelegraphs: interceptedSnap,
   });
 }
 
@@ -375,7 +381,12 @@ async function finalizeWarResolution(warId) {
 
   console.log('UNITS AFTER:', JSON.stringify(gameState.units, null, 2));
 
-  if (!gameState.turnLedger) gameState.turnLedger = { wars: [], territories: {} };
+  if (!gameState.turnLedger) {
+    gameState.turnLedger = { wars: [], territories: {}, interceptedTelegraphs: [] };
+  }
+  if (!Array.isArray(gameState.turnLedger.interceptedTelegraphs)) {
+    gameState.turnLedger.interceptedTelegraphs = [];
+  }
   gameState.turnLedger.wars.push({
     attacker: war.attacker,
     defender: war.defender,
@@ -441,7 +452,7 @@ io.on('connection', (socket) => {
 
     applyTurnProduction();
 
-    gameState.turnLedger = { wars: [], territories: {} };
+    gameState.turnLedger = { wars: [], territories: {}, interceptedTelegraphs: [] };
 
     gameState.turnActive = true;
     gameState.turnStartTime = Date.now();
@@ -557,6 +568,40 @@ io.on('connection', (socket) => {
     if (socket.id !== hostId) return;
     if (!gameState.turnActive) return;
     endTurn();
+  });
+
+  socket.on('sendTelegraph', (data) => {
+    const { to, message } = data || {};
+    const sender = gameState.players[socket.id];
+    if (!sender?.country || !to) return;
+
+    const from = sender.country;
+    if (from === to) return;
+
+    const msg = String(message ?? '')
+      .trim()
+      .slice(0, 2000);
+    if (!msg) return;
+
+    const targetEntry = Object.entries(gameState.players).find(([, p]) => p.country === to);
+    if (!targetEntry) return;
+
+    const intercepted = Math.random() < 0.2;
+    if (intercepted) {
+      if (!gameState.turnLedger) {
+        gameState.turnLedger = { wars: [], territories: {}, interceptedTelegraphs: [] };
+      }
+      if (!Array.isArray(gameState.turnLedger.interceptedTelegraphs)) {
+        gameState.turnLedger.interceptedTelegraphs = [];
+      }
+      gameState.turnLedger.interceptedTelegraphs.push({ from, to, message: msg });
+      io.emit('telegraphIntercepted', { from, to, message: msg });
+      console.log(`TELEGRAF ELE GEÇİRİLDİ: ${from} -> ${to}`);
+      return;
+    }
+
+    const [targetSocketId] = targetEntry;
+    io.to(targetSocketId).emit('telegraphReceived', { from, message: msg });
   });
 
   socket.on('disconnect', () => {

@@ -371,6 +371,33 @@ function LobbyScreen({ onEnter, socket }) {
   )
 }
 
+function TelegraphPanel({ targetCountry, messageText, onChange, onSend, onClose }) {
+  if (!targetCountry) return null
+  return (
+    <div className="telegraph-panel-overlay" role="dialog" aria-modal="true">
+      <div className="telegraph-panel">
+        <h3 className="telegraph-panel-title">TELEGRAF — {targetCountry}</h3>
+        <textarea
+          className="telegraph-panel-textarea"
+          placeholder="Mesajınızı yazın..."
+          value={messageText}
+          onChange={(e) => onChange(e.target.value)}
+          rows={6}
+          maxLength={2000}
+        />
+        <div className="telegraph-panel-actions">
+          <button type="button" className="telegraph-panel-btn telegraph-panel-btn--primary" onClick={onSend}>
+            Gönder
+          </button>
+          <button type="button" className="telegraph-panel-btn" onClick={onClose}>
+            İptal
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ContextMenu({ menu, resources, onSelectUnit, onDeclareWar }) {
   if (!menu) return null
   const kind = menu.type || 'units'
@@ -505,7 +532,14 @@ function NewspaperModal({ data, players, onClose }) {
   const territoryDelta =
     data.territories && typeof data.territories === 'object' ? data.territories : {}
   const territoryLines = Object.entries(territoryDelta).filter(([from, to]) => from && to)
+  const interceptedTel = Array.isArray(data.interceptedTelegraphs)
+    ? data.interceptedTelegraphs
+    : []
   const nextYear = data.nextCalendarYear ?? data.year
+  const mastheadEmpty =
+    wars.length === 0 &&
+    territoryLines.length === 0 &&
+    interceptedTel.length === 0
 
   return (
     <div className="newspaper-overlay" role="dialog" aria-modal="true">
@@ -516,9 +550,9 @@ function NewspaperModal({ data, players, onClose }) {
         <hr className="newspaper-rule" />
         <h2 className="newspaper-section-title">MANŞET</h2>
         <ul className="newspaper-headlines">
-          {wars.length === 0 && territoryLines.length === 0 ? (
+          {mastheadEmpty ? (
             <li className="newspaper-headline newspaper-headline--muted">
-              Bu tur kayda geçen savaş veya toprak değişimi olmadı.
+              Bu tur kayda geçen savaş, toprak değişimi veya ele geçirilen telegraf olmadı.
             </li>
           ) : null}
           {wars.map((w, i) => (
@@ -529,6 +563,14 @@ function NewspaperModal({ data, players, onClose }) {
           {territoryLines.map(([region]) => (
             <li key={`t-${region}`} className="newspaper-headline">
               🏴 {region} el değiştirdi
+            </li>
+          ))}
+          {interceptedTel.map((t, i) => (
+            <li key={`tel-${i}-${t.from}-${t.to}`} className="newspaper-headline newspaper-headline--intercept">
+              <span className="newspaper-intercept-line">
+                📰 {t.from} → {t.to} telegrafı ele geçirildi!
+              </span>
+              <span className="newspaper-intercept-msg">“{t.message}”</span>
             </li>
           ))}
         </ul>
@@ -589,7 +631,7 @@ function WarResultModal({ data, onClose }) {
   )
 }
 
-function PlayerListPanel({ players, currentPlayer, territories }) {
+function PlayerListPanel({ players, currentPlayer, territories, onTelegraphTo }) {
   const entries = Object.values(players)
   const conquestRows = Object.entries(territories || {}).filter(
     ([from, to]) => from && to && from !== to,
@@ -605,12 +647,31 @@ function PlayerListPanel({ players, currentPlayer, territories }) {
           entries.map((p, i) => {
             const isSelf = p.name === currentPlayer?.name
             return (
-              <li key={i} className={`player-list-row${isSelf ? ' player-list-row--self' : ''}`}>
+              <li
+                key={i}
+                className={`player-list-row${isSelf ? ' player-list-row--self' : ''}`}
+              >
                 <div className="player-list-info">
                   <span className="player-list-name">{p.name}</span>
                   <span className="player-list-country">{p.country}</span>
                 </div>
-                <span className="player-list-dot">●</span>
+                <div className="player-list-row-actions">
+                  {!isSelf && onTelegraphTo ? (
+                    <button
+                      type="button"
+                      className="player-list-telegraph-btn"
+                      title="Telegraf gönder"
+                      aria-label={`${p.country} ülkesine telegraf gönder`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onTelegraphTo(p.country)
+                      }}
+                    >
+                      📨
+                    </button>
+                  ) : null}
+                  <span className="player-list-dot">●</span>
+                </div>
               </li>
             )
           })
@@ -656,6 +717,11 @@ function App() {
   const [warTacticText, setWarTacticText] = useState('')
   const [warResultModal, setWarResultModal] = useState(null)
   const [newspaper, setNewspaper] = useState(null)
+  const [telegraphPanelCountry, setTelegraphPanelCountry] = useState(null)
+  const [telegraphDraft, setTelegraphDraft] = useState('')
+  const [telegraphInbox, setTelegraphInbox] = useState([])
+  const [telegraphReadOpen, setTelegraphReadOpen] = useState(null)
+  const [interceptToasts, setInterceptToasts] = useState([])
   const [turnClosedToast, setTurnClosedToast] = useState(null)
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
@@ -772,9 +838,33 @@ function App() {
           payload?.territories && typeof payload.territories === 'object'
             ? payload.territories
             : {},
+        interceptedTelegraphs: Array.isArray(payload?.interceptedTelegraphs)
+          ? payload.interceptedTelegraphs
+          : [],
         nextCalendarYear: typeof year === 'number' ? year : undefined,
         year: typeof year === 'number' ? year : undefined,
       })
+    })
+
+    newSocket.on('telegraphReceived', ({ from, message }) => {
+      if (!from) return
+      setTelegraphInbox((prev) => [
+        ...prev,
+        { id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, from, message: String(message ?? '') },
+      ])
+    })
+
+    newSocket.on('telegraphIntercepted', ({ from, to, message }) => {
+      if (!from || !to) return
+      setInterceptToasts((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          from,
+          to,
+          message: String(message ?? ''),
+        },
+      ])
     })
 
     newSocket.on('turnTimer', ({ remaining }) => {
@@ -979,6 +1069,24 @@ function App() {
     return () => document.removeEventListener('click', handleOutsideClick)
   }, [contextMenu])
 
+  function handleOpenTelegraphPanel(targetCountry) {
+    setTelegraphDraft('')
+    setTelegraphPanelCountry(targetCountry)
+  }
+
+  function handleSubmitTelegraph() {
+    if (!socket || !telegraphPanelCountry) return
+    const text = telegraphDraft.trim()
+    if (!text) return
+    socket.emit('sendTelegraph', {
+      to: telegraphPanelCountry,
+      from: player?.country,
+      message: text,
+    })
+    setTelegraphDraft('')
+    setTelegraphPanelCountry(null)
+  }
+
   useEffect(() => {
     console.log('[units] detail:', JSON.stringify(units, null, 2))
   }, [units])
@@ -1002,6 +1110,38 @@ function App() {
           {turnClosedToast}
         </div>
       )}
+
+      <div className="telegraph-notify-stack" aria-live="polite">
+        {telegraphInbox.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className="telegraph-inbox-chip"
+            onClick={() => {
+              setTelegraphReadOpen({ from: t.from, message: t.message })
+              setTelegraphInbox((prev) => prev.filter((x) => x.id !== t.id))
+            }}
+          >
+            📨 {t.from} ülkesinden telegraf geldi
+          </button>
+        ))}
+        {interceptToasts.map((t) => (
+          <div key={t.id} className="telegraph-intercept-card">
+            <button
+              type="button"
+              className="telegraph-intercept-dismiss"
+              aria-label="Kapat"
+              onClick={() => setInterceptToasts((prev) => prev.filter((x) => x.id !== t.id))}
+            >
+              ✕
+            </button>
+            <p className="telegraph-intercept-title">
+              📰 {t.from} → {t.to} telegrafı ele geçirildi!
+            </p>
+            <p className="telegraph-intercept-body">{t.message}</p>
+          </div>
+        ))}
+      </div>
       <MapContainer
         center={[20, 10]}
         zoom={3}
@@ -1050,7 +1190,44 @@ function App() {
         }}
       />
 
-      <PlayerListPanel players={players} currentPlayer={player} territories={territories} />
+      <PlayerListPanel
+        players={players}
+        currentPlayer={player}
+        territories={territories}
+        onTelegraphTo={(country) => handleOpenTelegraphPanel(country)}
+      />
+
+      <TelegraphPanel
+        targetCountry={telegraphPanelCountry}
+        messageText={telegraphDraft}
+        onChange={setTelegraphDraft}
+        onSend={handleSubmitTelegraph}
+        onClose={() => {
+          setTelegraphPanelCountry(null)
+          setTelegraphDraft('')
+        }}
+      />
+
+      {telegraphReadOpen ? (
+        <div
+          className="telegraph-read-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setTelegraphReadOpen(null)}
+        >
+          <div className="telegraph-read-modal" onClick={(e) => e.stopPropagation()}>
+            <h4 className="telegraph-read-from">{telegraphReadOpen.from}</h4>
+            <p className="telegraph-read-body">{telegraphReadOpen.message}</p>
+            <button
+              type="button"
+              className="telegraph-read-close"
+              onClick={() => setTelegraphReadOpen(null)}
+            >
+              Kapat
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <ContextMenu
         menu={contextMenu}
@@ -1058,6 +1235,7 @@ function App() {
         onSelectUnit={placeUnit}
         onDeclareWar={openWarPanelFromMenu}
       />
+
 
       <WarTacticPanel
         panel={warPanel}
