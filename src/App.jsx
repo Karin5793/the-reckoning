@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { MapContainer, TileLayer, GeoJSON, Marker } from 'react-leaflet'
 import L from 'leaflet'
 import { io } from 'socket.io-client'
@@ -116,7 +116,19 @@ const DEFAULT_STYLE = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.5 }
 const HOVER_STYLE   = { ...BASE_BORDER, fillColor: '#8b7355', fillOpacity: 0.75 }
 const SELECTED_STYLE = { ...BASE_BORDER, fillColor: '#6b4423', fillOpacity: 0.85 }
 const MY_STYLE      = { ...BASE_BORDER, fillColor: '#2d5a1b', fillOpacity: 0.75 }
-const ENEMY_STYLE   = { ...BASE_BORDER, fillColor: '#8b1a1a', fillOpacity: 0.75 }
+
+/** Oyuncu ülkeleri — haritada sahip rengi (sıra lobideki oyuncu listesiyle uyumlu) */
+const PLAYER_TERRITORY_COLORS = [
+  '#8b1a1a',
+  '#1e5a8c',
+  '#6b2d8b',
+  '#8b6914',
+  '#238b6a',
+  '#8c2d5c',
+  '#5c4a8b',
+  '#3d7a6b',
+  '#7a4a3d',
+]
 
 const EMPTY_RESOURCES = { bugday: 0, demir: 0, petrol: 0, para: 0, nig: 0 }
 
@@ -215,10 +227,23 @@ function empireAtTerritory(ww1Name, playersRecord) {
   return null
 }
 
-function territoryController(ww1Name, playersRecord, overrides) {
-  const o = overrides?.[ww1Name]
-  if (o != null && o !== '') return o
-  return empireAtTerritory(ww1Name, playersRecord)
+function effectiveEmpireWithConquests(baseEmpire, conquests) {
+  if (!baseEmpire || !conquests || typeof conquests !== 'object') return baseEmpire
+  let e = baseEmpire
+  const seen = new Set()
+  while (conquests[e] != null && conquests[e] !== '') {
+    if (seen.has(e)) break
+    seen.add(e)
+    e = conquests[e]
+  }
+  return e
+}
+
+/** Harita bölgesinin efektif sahibi (fetihler: territories[eskiSahip] = yeniSahip) */
+function territoryController(ww1Name, playersRecord, conquests) {
+  const base = empireAtTerritory(ww1Name, playersRecord)
+  if (!base) return null
+  return effectiveEmpireWithConquests(base, conquests || {})
 }
 
 function formatTime(ms) {
@@ -446,6 +471,95 @@ function WarTacticPanel({
   )
 }
 
+function shuffleForNewspaper(list) {
+  const out = [...list]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
+
+function formatWarHeadlineForPaper(w) {
+  const { attacker, defender, winner } = w
+  if (winner == null || winner === 'BERABERLIK') {
+    return `⚔ ${attacker} vs ${defender} — Beraberlik`
+  }
+  return `⚔ ${attacker} vs ${defender} — ${winner} zafer kazandı`
+}
+
+const NEWSPAPER_NAME = 'The World Dispatch'
+
+function NewspaperModal({ data, players, onClose }) {
+  const rankedPlayers = useMemo(() => {
+    const list = Object.values(players || {}).filter((p) => p?.name && p?.country)
+    return shuffleForNewspaper(list)
+  }, [data, players])
+
+  if (!data) return null
+
+  const dispatchYear =
+    data.dispatchYear ??
+    (typeof data.year === 'number' ? data.year - 1 : null)
+  const wars = Array.isArray(data.wars) ? data.wars : []
+  const territoryDelta =
+    data.territories && typeof data.territories === 'object' ? data.territories : {}
+  const territoryLines = Object.entries(territoryDelta).filter(([from, to]) => from && to)
+  const nextYear = data.nextCalendarYear ?? data.year
+
+  return (
+    <div className="newspaper-overlay" role="dialog" aria-modal="true">
+      <div className="newspaper-sheet">
+        <span className="newspaper-kicker">THE RECKONING</span>
+        <h1 className="newspaper-masthead">— {dispatchYear ?? '—'} —</h1>
+        <p className="newspaper-name">{NEWSPAPER_NAME}</p>
+        <hr className="newspaper-rule" />
+        <h2 className="newspaper-section-title">MANŞET</h2>
+        <ul className="newspaper-headlines">
+          {wars.length === 0 && territoryLines.length === 0 ? (
+            <li className="newspaper-headline newspaper-headline--muted">
+              Bu tur kayda geçen savaş veya toprak değişimi olmadı.
+            </li>
+          ) : null}
+          {wars.map((w, i) => (
+            <li key={`w-${i}-${w.attacker}-${w.defender}`} className="newspaper-headline">
+              {formatWarHeadlineForPaper(w)}
+            </li>
+          ))}
+          {territoryLines.map(([region]) => (
+            <li key={`t-${region}`} className="newspaper-headline">
+              🏴 {region} el değiştirdi
+            </li>
+          ))}
+        </ul>
+        <hr className="newspaper-rule" />
+        <h2 className="newspaper-section-title">GÜÇ SIRALAMASI</h2>
+        <ol className="newspaper-ranking">
+          {rankedPlayers.map((p, idx) => (
+            <li key={`${p.name}-${p.country}-${idx}`} className="newspaper-ranking-row">
+              <span className="newspaper-rank-num">{idx + 1}.</span>
+              <span className="newspaper-rank-main">
+                <span className="newspaper-rank-name">{p.name}</span>
+                <span className="newspaper-rank-country">{p.country}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+        {rankedPlayers.length === 0 ? (
+          <p className="newspaper-ranking-empty">Oyuncu yok.</p>
+        ) : null}
+        <hr className="newspaper-rule" />
+        <p className="newspaper-footer">
+          Bir sonraki tur 1 Ocak {nextYear} tarihinde başlayacak
+        </p>
+        <button type="button" className="newspaper-close" onClick={onClose}>
+          KAPAT
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function WarResultModal({ data, onClose }) {
   if (!data) return null
   const { attacker, defender, result, parsed } = data
@@ -475,8 +589,11 @@ function WarResultModal({ data, onClose }) {
   )
 }
 
-function PlayerListPanel({ players, currentPlayer }) {
+function PlayerListPanel({ players, currentPlayer, territories }) {
   const entries = Object.values(players)
+  const conquestRows = Object.entries(territories || {}).filter(
+    ([from, to]) => from && to && from !== to,
+  )
   return (
     <div className="player-list-panel">
       <span className="player-list-title">LOBİ</span>
@@ -499,6 +616,22 @@ function PlayerListPanel({ players, currentPlayer }) {
           })
         )}
       </ul>
+      {conquestRows.length > 0 ? (
+        <>
+          <div className="player-list-divider player-list-divider--tight" />
+          <span className="player-list-subtitle">ELE GEÇİRİLEN TOPRAKLAR</span>
+          <ul className="player-list player-list--conquests">
+            {conquestRows.map(([defenderEmpire, attackerEmpire]) => (
+              <li key={defenderEmpire} className="player-list-conquest-row">
+                <span className="player-list-conquest-from">{defenderEmpire}</span>
+                <span className="player-list-conquest-arrow"> → </span>
+                <span className="player-list-conquest-tag">ele geçirildi</span>
+                <span className="player-list-conquest-by"> ({attackerEmpire})</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -522,6 +655,7 @@ function App() {
   const [warPanel, setWarPanel] = useState(null)
   const [warTacticText, setWarTacticText] = useState('')
   const [warResultModal, setWarResultModal] = useState(null)
+  const [newspaper, setNewspaper] = useState(null)
   const [turnClosedToast, setTurnClosedToast] = useState(null)
   const selectedLayerRef = useRef(null)
   const geoJsonRef = useRef(null)
@@ -537,14 +671,21 @@ function App() {
     const rawName = feature.properties.NAME || feature.properties.name || ''
     const ww1Name = resolveCountryName(rawName)
     const myCountry = playerRef.current?.country
-    const ctrl = territoryController(ww1Name, playersRef.current, territoriesRef.current)
+    const playersRec = playersRef.current
+    const ctrl = territoryController(ww1Name, playersRec, territoriesRef.current)
+    if (!ctrl) return DEFAULT_STYLE
     if (myCountry && ctrl === myCountry) return MY_STYLE
-    const isEnemy =
-      ctrl &&
-      ctrl !== myCountry &&
-      Object.values(playersRef.current).some((p) => p.country === ctrl)
-    if (isEnemy) return ENEMY_STYLE
-    return DEFAULT_STYLE
+    const playerCountries = [
+      ...new Set(
+        Object.values(playersRec)
+          .map((p) => p.country)
+          .filter(Boolean),
+      ),
+    ].sort((a, b) => a.localeCompare(b, 'tr'))
+    const idx = playerCountries.indexOf(ctrl)
+    if (idx === -1) return DEFAULT_STYLE
+    const fillColor = PLAYER_TERRITORY_COLORS[idx % PLAYER_TERRITORY_COLORS.length]
+    return { ...BASE_BORDER, fillColor, fillOpacity: 0.75 }
   }
 
   function handleEnterGame(p) {
@@ -617,11 +758,23 @@ function App() {
       setTimeLeft(Math.max(0, turnEndTime - Date.now()))
     })
 
-    newSocket.on('turnEnded', ({ year, turn }) => {
-      setGameYear(year)
-      setGameTurn(turn)
+    newSocket.on('turnEnded', (payload) => {
+      const year = payload?.year
+      const turn = payload?.turn
+      if (typeof year === 'number') setGameYear(year)
+      if (typeof turn === 'number') setGameTurn(turn)
       setTurnActive(false)
       setTimeLeft(0)
+      setNewspaper({
+        dispatchYear: payload?.dispatchYear ?? (typeof year === 'number' ? year - 1 : undefined),
+        wars: Array.isArray(payload?.wars) ? payload.wars : [],
+        territories:
+          payload?.territories && typeof payload.territories === 'object'
+            ? payload.territories
+            : {},
+        nextCalendarYear: typeof year === 'number' ? year : undefined,
+        year: typeof year === 'number' ? year : undefined,
+      })
     })
 
     newSocket.on('turnTimer', ({ remaining }) => {
@@ -897,7 +1050,7 @@ function App() {
         }}
       />
 
-      <PlayerListPanel players={players} currentPlayer={player} />
+      <PlayerListPanel players={players} currentPlayer={player} territories={territories} />
 
       <ContextMenu
         menu={contextMenu}
@@ -918,6 +1071,12 @@ function App() {
       <WarResultModal
         data={warResultModal}
         onClose={() => setWarResultModal(null)}
+      />
+
+      <NewspaperModal
+        data={newspaper}
+        players={players}
+        onClose={() => setNewspaper(null)}
       />
 
       {isHost && !turnActive && (

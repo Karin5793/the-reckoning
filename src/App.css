@@ -539,7 +539,7 @@
   top: 40px;
   right: 0;
   z-index: 1000;
-  width: 180px;
+  width: 210px;
   background: rgba(14, 11, 7, 0.85);
   border: 1px solid #6b5a3e;
   border-top: none;
@@ -624,6 +624,49 @@
   color: #4caf50;
   flex-shrink: 0;
   line-height: 1;
+}
+
+.player-list-divider--tight {
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.player-list-subtitle {
+  display: block;
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  color: #9a8060;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  user-select: none;
+}
+
+.player-list--conquests {
+  gap: 5px;
+}
+
+.player-list-conquest-row {
+  font-size: 9px;
+  color: #a89878;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.player-list-conquest-from {
+  color: #d4c9a8;
+  font-weight: 500;
+}
+
+.player-list-conquest-arrow {
+  color: #6b5a3e;
+}
+
+.player-list-conquest-tag {
+  color: #c9a227;
+}
+
+.player-list-conquest-by {
+  color: #8b7355;
 }
 
 /* ── Country Panel ───────────────────────────────────── */
@@ -720,4 +763,174 @@
   text-align: right;
   font-style: italic;
   opacity: 0.6;
+}
+
+/* ── Newspaper (turn end) ───────────────────────────── */
+
+.newspaper-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4500;
+  background: rgba(12, 8, 4, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+.newspaper-sheet {
+  max-width: 600px;
+  width: 100%;
+  padding: 32px;
+  background: #f4e4c1;
+  color: #1a1008;
+  border: 3px solid #1a1008;
+  box-shadow:
+    0 2px 0 #2a2018,
+    0 12px 40px rgba(0, 0, 0, 0.55),
+    0 28px 80px rgba(0, 0, 0, 0.35);
+  max-height: min(90vh, 900px);
+  overflow-y: auto;
+}
+
+.newspaper-kicker {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.45em;
+  text-transform: uppercase;
+  color: #3a3028;
+  margin-bottom: 12px;
+}
+
+.newspaper-masthead {
+  margin: 0 0 8px;
+  text-align: center;
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  line-height: 1.1;
+}
+
+.newspaper-name {
+  margin: 0 0 20px;
+  text-align: center;
+  font-size: 1rem;
+  font-style: italic;
+  color: #2a2218;
+}
+
+.newspaper-rule {
+  border: none;
+  border-top: 2px solid #1a1008;
+  margin: 18px 0;
+}
+
+.newspaper-section-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.newspaper-headlines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.newspaper-headline {
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.newspaper-headline--muted {
+  font-weight: 400;
+  font-style: italic;
+  color: #4a4034;
+}
+
+.newspaper-ranking {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: rank;
+}
+
+.newspaper-ranking-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(26, 16, 8, 0.15);
+  font-size: 14px;
+}
+
+.newspaper-rank-num {
+  font-weight: 700;
+  color: #1a1008;
+  min-width: 1.75rem;
+  flex-shrink: 0;
+}
+
+.newspaper-rank-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.newspaper-rank-name {
+  font-weight: 600;
+}
+
+.newspaper-rank-country {
+  font-size: 12px;
+  font-style: italic;
+  color: #3a3028;
+  opacity: 0.95;
+}
+
+.newspaper-ranking-empty {
+  margin: 8px 0 0;
+  font-style: italic;
+  color: #4a4034;
+  font-size: 14px;
+}
+
+.newspaper-footer {
+  margin: 16px 0 24px;
+  text-align: center;
+  font-size: 14px;
+  font-style: italic;
+  color: #2a2218;
+}
+
+.newspaper-close {
+  display: block;
+  width: 100%;
+  margin: 0 auto;
+  padding: 12px 20px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #f4e4c1;
+  background: #1a1008;
+  border: 2px solid #1a1008;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.newspaper-close:hover {
+  background: #2a2018;
+  color: #fff;
 }

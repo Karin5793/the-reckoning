@@ -6,7 +6,6 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const WW1_MAP_REGION_NAMES = require('./ww1MapRegionNames');
 
 const app = express();
 app.use(cors());
@@ -70,6 +69,7 @@ const gameState = {
   turnDuration: 60000, // test: 1 dakika (prod: 7200000)
   turnEndTime: null,
   turnStartTime: null,
+  turnLedger: { wars: [], territories: {} },
 };
 
 let hostId = null;
@@ -118,10 +118,24 @@ function endTurn() {
   gameState.turnActive = false;
   gameState.turnEndTime = null;
   gameState.turnStartTime = null;
+
+  const dispatchYear = gameState.year;
+  const ledger = gameState.turnLedger || { wars: [], territories: {} };
+  const warsSnap = [...ledger.wars];
+  const territoriesSnap = { ...ledger.territories };
+
   gameState.year += 1;
   gameState.turn += 1;
+  gameState.turnLedger = { wars: [], territories: {} };
+
   console.log(`Tur bitti. Yeni yıl: ${gameState.year}, Tur: ${gameState.turn}`);
-  io.emit('turnEnded', { year: gameState.year, turn: gameState.turn });
+  io.emit('turnEnded', {
+    year: gameState.year,
+    turn: gameState.turn,
+    dispatchYear,
+    wars: warsSnap,
+    territories: territoriesSnap,
+  });
 }
 
 function collectUnitsForCountry(units, country) {
@@ -192,36 +206,6 @@ function parseWarResult(text, attacker, defender) {
   });
 
   return result;
-}
-
-function empireAtTerritoryServer(ww1Name, playersRecord) {
-  const sorted = Object.values(playersRecord)
-    .filter((p) => p?.country)
-    .sort((a, b) => b.country.length - a.country.length);
-  for (const p of sorted) {
-    const c = p.country;
-    if (ww1Name === c || ww1Name.startsWith(`${c} (`)) return c;
-  }
-  return null;
-}
-
-function effectiveTerritoryOwnerServer(ww1Name, players, territories) {
-  const o = territories[ww1Name];
-  if (o != null && o !== '') return o;
-  return empireAtTerritoryServer(ww1Name, players);
-}
-
-function transferDefenderTerritoriesToAttacker(attacker, defender) {
-  const { players, territories } = gameState;
-  const regionsToCheck = new Set([
-    ...WW1_MAP_REGION_NAMES,
-    ...Object.keys(territories || {}),
-  ]);
-  regionsToCheck.forEach((region) => {
-    if (effectiveTerritoryOwnerServer(region, players, territories) === defender) {
-      territories[region] = attacker;
-    }
-  });
 }
 
 function rawCasualtiesToUnitLosses(losses) {
@@ -391,8 +375,15 @@ async function finalizeWarResolution(warId) {
 
   console.log('UNITS AFTER:', JSON.stringify(gameState.units, null, 2));
 
+  if (!gameState.turnLedger) gameState.turnLedger = { wars: [], territories: {} };
+  gameState.turnLedger.wars.push({
+    attacker: war.attacker,
+    defender: war.defender,
+    winner: parsed.winner,
+  });
   if (parsed.winner === war.attacker) {
-    transferDefenderTerritoriesToAttacker(war.attacker, war.defender);
+    gameState.territories[war.defender] = war.attacker;
+    gameState.turnLedger.territories[war.defender] = war.attacker;
   }
 
   war.resolved = true;
@@ -407,7 +398,7 @@ async function finalizeWarResolution(warId) {
     parsed,
   });
 
-  io.emit('territoriesUpdate', { ...gameState.territories });
+  io.emit('territoriesUpdate', gameState.territories);
   io.emit('unitsUpdate', gameState.units);
 }
 
@@ -433,6 +424,8 @@ io.on('connection', (socket) => {
     isHost: socket.id === hostId,
   });
 
+  socket.emit('territoriesUpdate', gameState.territories);
+
   emitResourcesToSocket(socket);
 
   socket.on('selectCountry', ({ name, country }) => {
@@ -447,6 +440,8 @@ io.on('connection', (socket) => {
     if (gameState.turnActive) return;
 
     applyTurnProduction();
+
+    gameState.turnLedger = { wars: [], territories: {} };
 
     gameState.turnActive = true;
     gameState.turnStartTime = Date.now();
