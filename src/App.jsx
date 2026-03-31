@@ -3,7 +3,6 @@ import { MapContainer, TileLayer, GeoJSON, Marker } from 'react-leaflet'
 import L from 'leaflet'
 import { io } from 'socket.io-client'
 import ww1Countries from './data/ww1Countries'
-import { fetchWW1Borders } from './data/ww1Borders'
 import './App.css'
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3002';
@@ -791,10 +790,65 @@ function App() {
   }
 
   useEffect(() => {
-    fetchWW1Borders()
-      .then((data) => setGeoData(data))
-      .catch((err) => console.error('WW1 sınırları yüklenemedi:', err))
+    console.log('[GeoJSON] useEffect (fetch) mount')
+    console.log('Fetch başlıyor')
+    const url =
+      'https://raw.githubusercontent.com/aourednik/historical-basemaps/master/geojson/world_1914.geojson'
+    console.log('[GeoJSON] URL:', url)
+
+    fetch(url)
+      .then((r) => {
+        console.log('[GeoJSON] Yanıt alındı', {
+          ok: r.ok,
+          status: r.status,
+          statusText: r.statusText,
+          type: r.type,
+        })
+        console.log('[GeoJSON] Body JSON olarak parse ediliyor…')
+        return r.json()
+      })
+      .then((data) => {
+        const featureLen = Array.isArray(data?.features) ? data.features.length : null
+        console.log('[GeoJSON] Parse tamam', {
+          type: data?.type,
+          featureSayisi: featureLen,
+          ustSeviyeAnahtarlar: data && typeof data === 'object' ? Object.keys(data) : [],
+        })
+        console.log('GeoJSON yüklendi, feature sayısı:', featureLen)
+        console.log('[GeoJSON] setGeoData çağrılıyor')
+        setGeoData(data)
+        console.log('[GeoJSON] setGeoData tetiklendi (React state bir sonraki render’da güncellenir)')
+      })
+      .catch((err) => {
+        console.error('GeoJSON fetch hatası:', err)
+        console.error('[GeoJSON] Hata detayı', {
+          name: err?.name,
+          message: err?.message,
+          stack: err?.stack,
+        })
+      })
   }, [])
+
+  useEffect(() => {
+    if (geoData == null) {
+      console.log('[GeoJSON state] geoData:', null, '(henüz yok veya sıfırlandı)')
+      return
+    }
+    console.log('[GeoJSON state] güncellendi', {
+      type: geoData.type,
+      featureSayisi: Array.isArray(geoData.features) ? geoData.features.length : 'features yok',
+      crs: geoData.crs ?? '(yok)',
+      ilkFeatureOrnek:
+        Array.isArray(geoData.features) && geoData.features[0]
+          ? {
+              geometryType: geoData.features[0].geometry?.type,
+              propertiesKeys: geoData.features[0].properties
+                ? Object.keys(geoData.features[0].properties)
+                : [],
+            }
+          : null,
+    })
+  }, [geoData])
 
   useEffect(() => {
     return () => {
