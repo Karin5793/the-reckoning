@@ -907,21 +907,32 @@
 
 .newspaper-rank-main {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
 }
 
-.newspaper-rank-name {
+.newspaper-rank-country-line {
   font-weight: 600;
+  color: #1a1008;
+  line-height: 1.35;
 }
 
-.newspaper-rank-country {
+.newspaper-rank-name-sub {
   font-size: 12px;
   font-style: italic;
-  color: #3a3028;
-  opacity: 0.95;
+  color: #4a4034;
+}
+
+.newspaper-ranking-row--leader .newspaper-rank-num,
+.newspaper-ranking-row--leader .newspaper-rank-country-line {
+  font-weight: 700;
+  color: #8b6914;
+}
+
+.newspaper-ranking-row--leader .newspaper-rank-name-sub {
+  color: #6b5510;
 }
 
 .newspaper-ranking-empty {

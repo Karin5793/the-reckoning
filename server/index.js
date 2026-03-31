@@ -129,6 +129,16 @@ function endTurn() {
   const territoriesSnap = { ...ledger.territories };
   const interceptedSnap = [...(ledger.interceptedTelegraphs || [])];
 
+  const powerScores = {};
+  Object.keys(gameState.players).forEach((id) => {
+    const p = gameState.players[id];
+    if (!p?.country) return;
+    powerScores[p.country] = calculatePowerScore(id);
+  });
+  const sortedPowerScores = Object.entries(powerScores)
+    .sort((a, b) => b[1] - a[1])
+    .map(([country, score]) => ({ country, score }));
+
   gameState.year += 1;
   gameState.turn += 1;
   gameState.turnLedger = { wars: [], territories: {}, interceptedTelegraphs: [] };
@@ -141,6 +151,7 @@ function endTurn() {
     wars: warsSnap,
     territories: territoriesSnap,
     interceptedTelegraphs: interceptedSnap,
+    powerScores: sortedPowerScores,
   });
 }
 
@@ -155,6 +166,31 @@ function collectUnitsForCountry(units, country) {
     }
   });
   return totals;
+}
+
+function calculatePowerScore(playerId) {
+  const player = gameState.players[playerId];
+  if (!player?.country) return 0;
+
+  const country = player.country;
+  const resources = gameState.countryResources[country] || {};
+  const unitTotals = collectUnitsForCountry(gameState.units, country);
+
+  let territoryScore = 1;
+  Object.entries(gameState.territories || {}).forEach(([, conqueror]) => {
+    if (conqueror === country) territoryScore += 1;
+  });
+
+  const militaryScore =
+    (unitTotals.infantry || 0) * 2 +
+    (unitTotals.artillery || 0) * 3 +
+    (unitTotals.cavalry || 0) * 2;
+
+  const economyScore = Math.floor(
+    ((resources.para || 0) + (resources.demir || 0) + (resources.petrol || 0)) / 10,
+  );
+
+  return territoryScore * 20 + militaryScore + economyScore;
 }
 
 function parseWarResult(text, attacker, defender) {
@@ -229,6 +265,53 @@ function findUnitKey(units, country) {
   if (!units || !country) return null;
   if (units[country]) return country;
   return Object.keys(units).find((k) => k.startsWith(country)) || null;
+}
+
+function findResourceKey(resourcesObj, country) {
+  if (!resourcesObj || !country) return null;
+  if (resourcesObj[country]) return country;
+  return Object.keys(resourcesObj).find((k) => k.startsWith(country)) || null;
+}
+
+function applyResourceLoss(country, percentage) {
+  const key = findResourceKey(gameState.countryResources, country);
+  if (!key) return;
+  const resources = gameState.countryResources[key];
+  if (!resources || typeof resources !== 'object') return;
+  Object.keys(resources).forEach((r) => {
+    const v = resources[r] || 0;
+    resources[r] = Math.floor(v * (1 - percentage));
+  });
+}
+
+function applyWarResourceOutcome(attacker, defender, winner) {
+  if (winner === attacker) {
+    const defKey = findResourceKey(gameState.countryResources, defender);
+    const attKey = findResourceKey(gameState.countryResources, attacker);
+    if (!defKey || !attKey) return;
+    const before = { ...gameState.countryResources[defKey] };
+    applyResourceLoss(defender, 0.3);
+    const defRes = gameState.countryResources[defKey];
+    const attRes = gameState.countryResources[attKey];
+    Object.keys(before).forEach((r) => {
+      const lost = (before[r] || 0) - (defRes[r] || 0);
+      const gain = Math.floor(lost / 2);
+      attRes[r] = Math.max(0, (attRes[r] || 0) + gain);
+    });
+    return;
+  }
+  if (winner === defender) {
+    applyResourceLoss(attacker, 0.25);
+  }
+}
+
+function broadcastEachPlayerResources() {
+  Object.keys(gameState.players).forEach((id) => {
+    const country = gameState.players[id].country;
+    if (!country) return;
+    const key = findResourceKey(gameState.countryResources, country);
+    if (key) io.to(id).emit('resourcesUpdate', { ...gameState.countryResources[key] });
+  });
 }
 
 function subtractUnitsFromCountry(unitsObj, country, deltas) {
@@ -396,6 +479,9 @@ async function finalizeWarResolution(warId) {
     gameState.territories[war.defender] = war.attacker;
     gameState.turnLedger.territories[war.defender] = war.attacker;
   }
+
+  applyWarResourceOutcome(war.attacker, war.defender, parsed.winner);
+  broadcastEachPlayerResources();
 
   war.resolved = true;
   war.resolving = false;

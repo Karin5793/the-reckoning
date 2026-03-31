@@ -518,10 +518,30 @@ function formatWarHeadlineForPaper(w) {
 const NEWSPAPER_NAME = 'The World Dispatch'
 
 function NewspaperModal({ data, players, onClose }) {
-  const rankedPlayers = useMemo(() => {
+  const rankingRows = useMemo(() => {
+    const scores =
+      Array.isArray(data?.powerScores) && data.powerScores.length > 0
+        ? data.powerScores
+        : null
+    if (scores) {
+      return scores.map((row, idx) => {
+        const pl = Object.values(players || {}).find((p) => p.country === row.country)
+        return {
+          rank: idx + 1,
+          country: row.country,
+          score: row.score,
+          playerName: pl?.name,
+        }
+      })
+    }
     const list = Object.values(players || {}).filter((p) => p?.name && p?.country)
-    return shuffleForNewspaper(list)
-  }, [data, players])
+    return shuffleForNewspaper(list).map((p, idx) => ({
+      rank: idx + 1,
+      country: p.country,
+      score: null,
+      playerName: p.name,
+    }))
+  }, [data?.powerScores, data, players])
 
   if (!data) return null
 
@@ -577,17 +597,24 @@ function NewspaperModal({ data, players, onClose }) {
         <hr className="newspaper-rule" />
         <h2 className="newspaper-section-title">GÜÇ SIRALAMASI</h2>
         <ol className="newspaper-ranking">
-          {rankedPlayers.map((p, idx) => (
-            <li key={`${p.name}-${p.country}-${idx}`} className="newspaper-ranking-row">
-              <span className="newspaper-rank-num">{idx + 1}.</span>
+          {rankingRows.map((row) => (
+            <li
+              key={`${row.rank}-${row.country}`}
+              className={`newspaper-ranking-row${row.rank === 1 ? ' newspaper-ranking-row--leader' : ''}`}
+            >
+              <span className="newspaper-rank-num">{row.rank}.</span>
               <span className="newspaper-rank-main">
-                <span className="newspaper-rank-name">{p.name}</span>
-                <span className="newspaper-rank-country">{p.country}</span>
+                <span className="newspaper-rank-country-line">
+                  {row.country} — {row.score != null ? `${row.score} puan` : '—'}
+                </span>
+                {row.playerName ? (
+                  <span className="newspaper-rank-name-sub">{row.playerName}</span>
+                ) : null}
               </span>
             </li>
           ))}
         </ol>
-        {rankedPlayers.length === 0 ? (
+        {rankingRows.length === 0 ? (
           <p className="newspaper-ranking-empty">Oyuncu yok.</p>
         ) : null}
         <hr className="newspaper-rule" />
@@ -841,6 +868,7 @@ function App() {
         interceptedTelegraphs: Array.isArray(payload?.interceptedTelegraphs)
           ? payload.interceptedTelegraphs
           : [],
+        powerScores: Array.isArray(payload?.powerScores) ? payload.powerScores : [],
         nextCalendarYear: typeof year === 'number' ? year : undefined,
         year: typeof year === 'number' ? year : undefined,
       })
